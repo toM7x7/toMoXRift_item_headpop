@@ -159,6 +159,41 @@ const scenarios={
   await page.screenshot({path:join(OUT,'other.png')})
   await page.close()
  },
+ async vr(){
+  const page=await open()
+  await page.evaluate(()=>window.__headPop.act({type:'wear'}));await page.waitForTimeout(150)
+  // A fake XR session with one right xr-standard controller, fed to the real code path.
+  await page.evaluate(()=>{
+   const calls=[],buttons=[0,1,2,3].map(()=>({pressed:false,value:0}))
+   const right={handedness:'right',targetRayMode:'tracked-pointer',gamepad:{mapping:'xr-standard',connected:true,buttons,axes:[0,0,0,0],hapticActuators:[{pulse:(i,ms)=>calls.push([+i.toFixed(2),ms])}]}}
+   const session={visibilityState:'visible',inputSources:[right],addEventListener(){},removeEventListener(){}}
+   window.__fakeXR={calls,buttons}
+   window.__headPop.gl.xr.getSession=()=>session
+  })
+  await page.waitForTimeout(250)
+  check('vr: the PC key hint hides while an XR session exists',!(await report(page)).hint)
+  await page.evaluate(()=>{window.__fakeXR.buttons[3].pressed=true});await page.waitForTimeout(250)
+  await page.evaluate(()=>{window.__fakeXR.buttons[3].pressed=false});await page.waitForTimeout(150)
+  let r=await report(page)
+  check('vr: R3 opens the palette with a light tick',r.paletteOpen&&r.vr.fires===1&&JSON.stringify(await page.evaluate(()=>window.__fakeXR.calls))==='[[0.25,18]]',{open:r.paletteOpen,fires:r.vr.fires,calls:await page.evaluate(()=>window.__fakeXR.calls)})
+  await page.evaluate(()=>{window.__fakeXR.buttons[0].pressed=true;window.__fakeXR.buttons[3].pressed=true});await page.waitForTimeout(200)
+  await page.evaluate(()=>{window.__fakeXR.buttons[0].pressed=false;window.__fakeXR.buttons[3].pressed=false});await page.waitForTimeout(150)
+  check('vr: R3 with the trigger held does nothing',(await report(page)).paletteOpen&&(await report(page)).vr.fires===1)
+  await page.evaluate(()=>window.__headPop.clock.freeze())
+  const at=await clickId(page,'head-pop-one:head-pop:icon-2')
+  await page.waitForTimeout(200)
+  r=await report(page)
+  const calls=await page.evaluate(()=>window.__fakeXR.calls)
+  check('vr: picking a button pops it and taps twice in the hand',r.fired?.icon===2&&!r.paletteOpen&&JSON.stringify(calls)==='[[0.25,18],[0.45,30],[0.85,55]]',calls)
+  check('vr: an echo starts at the pressed button',r.echo?.icon===2&&Array.isArray(r.echo.position),r.echo)
+  const clip={x:Math.round(at.x-110),y:Math.round(at.y-190),width:220,height:240}
+  let last=0
+  for(const t of [.04,.12,.24,.45,.7,.95]){
+   await page.evaluate(dt=>window.__headPop.clock.step(dt),t-last);last=t;await page.waitForTimeout(90)
+   await page.screenshot({path:join(OUT,`echo-${String(Math.round(t*100)).padStart(3,'0')}.png`),clip})
+  }
+  await page.close()
+ },
  async preview(){
   for(const [query,expect,file] of [['?preview=solo','preview-first','preview.png'],['?preview=1','preview-duplicate','preview-blocked.png']]){
    const page=await open(query,'head-pop-preview')

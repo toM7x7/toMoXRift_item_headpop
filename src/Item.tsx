@@ -7,6 +7,8 @@ import {CHANNEL,createRateGate,makePayload,readEvent} from './channel.mjs'
 import {createHeadTracker} from './head.mjs'
 import {isIconIndex} from './icons.mjs'
 import {isEditing} from './input.mjs'
+import {Echo,type EchoState} from './Echo'
+import {createHaptics} from './haptics.mjs'
 import {Palette} from './Palette'
 import {bindRenderer,placementRole,registerPlacement,rendererId,showPop,subscribePlacements} from './placements.mjs'
 import {createPopRuntime} from './pops.mjs'
@@ -22,7 +24,7 @@ export interface ItemProps{
  /** Development only: replace the pop clock (seconds) for frame-stepped captures. */
  clock?:()=>number
 }
-type Action={type:'pop';icon:number}|{type:'palette';open?:boolean}|{type:'wear'}|{type:'remove'}
+type Action={type:'pop';icon:number;from?:[number,number,number]}|{type:'palette';open?:boolean}|{type:'wear'}|{type:'remove'}
 const LOCAL_GAP_S=.11
 
 export function Item(props:ItemProps){
@@ -44,6 +46,8 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  const live=!preview&&role==='primary',renderer=live&&isRenderer
  const [worn,setWorn]=useState(false),[paletteOpen,setPaletteOpen]=useState(false)
  const [fired,setFired]=useState<{icon:number;seq:number}|null>(null),[hintVisible,setHintVisible]=useState(false)
+ const [echo,setEcho]=useState<EchoState|null>(null)
+ const haptics=useMemo(()=>createHaptics(),[]),haptic=useRef({pops:0,ticks:0})
  const root=useRef<Group>(null),layer=useRef<Group>(null)
  const latest=useRef({worn,preview,live,localId,paletteOpen});latest.current={worn,preview,live,localId,paletteOpen}
  const usersRef=useRef<UsersContextValue>(users);usersRef.current=users
@@ -77,12 +81,15 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
     const seq=showPop(ctx.localId,action.icon)??0
     eventsRef.current?.emit(name,makePayload(action.icon))
     setFired({icon:action.icon,seq})
+    // In VR the top of your own head is out of view: confirm in the hand and at the button.
+    if(action.from)setEcho({icon:action.icon,start:now(),position:action.from})
+    if(haptics.pop())haptic.current.pops++ // no XR session, no controller: does nothing
     if(ctx.paletteOpen){latest.current={...ctx,paletteOpen:false};setPaletteOpen(false)}
     return true
    }
   }
   return false
- },[name,now])
+ },[name,now,gl,haptics])
 
  // Other people's pops, received once per room by the renderer copy. The sender never
  // receives its own event; act() shows it locally through showPop().
@@ -122,20 +129,23 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   return()=>{unbind();hook.dispose();pops.dispose();tracker.clear();runtime.current=null}
  },[scene,id,renderer,texture,geometries,now])
 
+ useEffect(()=>()=>haptics.attach(null),[haptics])
+
  // A copy that stops being the room's stand (another copy took over) lets go of the wearer.
  useEffect(()=>{if(!live&&latest.current.worn){latest.current={...latest.current,worn:false,paletteOpen:false};setWorn(false);setPaletteOpen(false)}},[live])
 
  useFrame(({clock:frameClock})=>{
   const ctx=latest.current,session=gl.xr.getSession(),editing=isEditing(document.activeElement)
+  haptics.attach(session)
   const vr=shortcuts.current?.pollXR(session,editing)??{fire:false,reason:'inactive'}
-  if(vr.fire)vrFires.current++
+  if(vr.fire){vrFires.current++;if(haptics.tick())haptic.current.ticks++}
   const inVR=gl.xr.isPresenting||!!session||users.getLocalMovement?.().isInVR===true
   const show=!!(ctx.worn&&ctx.live&&!ctx.paletteOpen&&!inVR&&!editing&&shortcuts.current?.ownsControls())
   if(show!==hintVisible)setHintVisible(show)
   const t=frameClock.elapsedTime
   if(root.current&&t-lastReport.current>.1){
    lastReport.current=t
-   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current},palette:ctx.paletteOpen?paletteLayout.current:null,fired}
+   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current,haptics:{...haptic.current}},echo,palette:ctx.paletteOpen?paletteLayout.current:null,fired}
   }
  })
 
@@ -147,7 +157,8 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
    <Stand id={id} mode={mode} texture={texture} geometries={geometries} interactionText={standText} enabled={!preview&&!!localId} onInteract={()=>{if(latest.current.live)act(latest.current.worn?{type:'palette',open:true}:{type:'wear'})}}/>
   </group>
   <group ref={layer}/>
-  {paletteOpen&&worn&&live&&<Palette id={id} texture={texture} geometries={geometries} onPick={icon=>act({type:'pop',icon})} onRemove={()=>act({type:'remove'})} onClose={()=>act({type:'palette',open:false})} report={layout=>{paletteLayout.current=layout}}/>}
+  {paletteOpen&&worn&&live&&<Palette id={id} texture={texture} geometries={geometries} onPick={(icon,from)=>act({type:'pop',icon,from})} onRemove={()=>act({type:'remove'})} onClose={()=>act({type:'palette',open:false})} report={layout=>{paletteLayout.current=layout}}/>}
+  {live&&<Echo echo={echo} texture={texture} geometries={geometries} now={now}/>}
   {hintVisible&&<ShortcutHint id={id} fired={fired}/>}
  </group>
 }

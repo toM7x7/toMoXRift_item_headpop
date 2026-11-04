@@ -75,7 +75,7 @@ function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:Retur
    act:(action:unknown,id?:string)=>find(id)?.userData.headPopActions?.act(action)??false,
    deliver:(senderId:string,icon:number)=>bus.deliver(CHANNEL,senderId,makePayload(icon)),
    sent:()=>bus.sent.map(s=>({...s})),
-   clock,scene,camera,
+   clock,scene,camera,gl,
    /** Screen position of an Interactable by id (for real clicks). */
    project(id:string){let r:any=null;scene.traverse(o=>{if(o.userData.id!==id)return;for(let n:Object3D|null=o;n;n=n.parent)if(!n.visible)return;const p=o.getWorldPosition(new Vector3()).project(camera),rect=gl.domElement.getBoundingClientRect();r={x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2,text:o.userData.interactionText,enabled:o.userData.enabled}});return r},
    point(world:number[]){const p=new Vector3().fromArray(world).project(camera),rect=gl.domElement.getBoundingClientRect();return {x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2}},

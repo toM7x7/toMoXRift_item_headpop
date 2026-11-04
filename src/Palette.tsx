@@ -25,7 +25,7 @@ const overlay={transparent:true,depthTest:false,depthWrite:false,toneMapped:fals
  * Choice palette in front of the wearer: 8 sticker buttons (with their PC key) plus 外す / 閉じる.
  * Opened by M, by R3 in VR, or by selecting the floating sticker while worn.
  */
-export function Palette({id,texture,geometries,onPick,onRemove,onClose,report}:{id:string;texture:Texture;geometries:PlaneGeometry[];onPick:(icon:number)=>void;onRemove:()=>void;onClose:()=>void;report:(layout:unknown)=>void}){
+export function Palette({id,texture,geometries,onPick,onRemove,onClose,report}:{id:string;texture:Texture;geometries:PlaneGeometry[];onPick:(icon:number,from:[number,number,number])=>void;onRemove:()=>void;onClose:()=>void;report:(layout:unknown)=>void}){
  const root=useRef<Group>(null),heading=useRef<number[]|null>(null),users=useUsers(),{camera,gl}=useThree()
  const cells=useMemo(()=>paletteCells(),[])
  const badges=useBadgeGeometries()
@@ -50,10 +50,12 @@ export function Palette({id,texture,geometries,onPick,onRemove,onClose,report}:{
   setWorldTransform(g,_p.fromArray(layout.position),_q.fromArray(layout.quaternion),layout.scale)
  })
  const b=PALETTE.button
+ /** World position of a button, for the local echo that hops up from it. */
+ const buttonWorld=(x:number,y:number):[number,number,number]=>{const p=new Vector3(x,y,.01);root.current?.localToWorld(p);return [p.x,p.y,p.z]}
  return <group ref={root} visible={false}>
   {ICONS.map((icon,i)=>{const {x,y}=cells.icons[i];return <group key={icon.key} position={[x,y,0]}>
    <mesh renderOrder={20} position={[0,0,-.002]}><circleGeometry args={[b/2+.006,40]}/><meshBasicMaterial color="#2a2e3d" {...overlay}/></mesh>
-   <Interactable id={`${id}:head-pop:icon-${i}`} interactionText={`${icon.label}（${i+1}）`} onInteract={()=>onPick(i)}>
+   <Interactable id={`${id}:head-pop:icon-${i}`} interactionText={`${icon.label}（${i+1}）`} onInteract={()=>onPick(i,buttonWorld(x,y))}>
     <mesh renderOrder={21}><circleGeometry args={[b/2,40]}/><meshBasicMaterial color="#fffdf8" {...overlay}/></mesh>
    </Interactable>
    <mesh renderOrder={22} position={[0,0,.002]} geometry={geometries[i]} scale={b*.92}><meshBasicMaterial map={texture} {...overlay}/></mesh>
