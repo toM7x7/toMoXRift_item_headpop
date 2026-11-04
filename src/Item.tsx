@@ -14,7 +14,7 @@ import {bindRenderer,locateUser,placementRole,registerPlacement,rendererId,showP
 import {createPopRuntime} from './pops.mjs'
 import {attachRenderHook} from './render-hook.mjs'
 import {registerShortcuts} from './shortcuts.mjs'
-import {createSignFinder} from './sign.mjs'
+import {createSignFinder,headTagWornHere,paletteControls} from './sign.mjs'
 import {ShortcutHint} from './ShortcutHint'
 import {Stand,type StandFlight,type StandMode} from './Stand'
 import {menuControllers} from './vr-menu.mjs'
@@ -57,6 +57,8 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  // (PC keys: M, VR controller: R3); otherwise it stays as the way to the palette.
  const wearingHere=useSyncExternalStore(subscribeWearing,wearingAny,()=>false)
  const [summonable,setSummonable]=useState(()=>!touchOnly())
+ // Also wearing the 頭上看板: digits stay reactions, M is its menu, the palette moves to N / L3.
+ const [tagWorn,setTagWorn]=useState(false),controls=paletteControls(tagWorn)
  const standState=useRef<StandFlight>({p:0,kind:'shrink',away:false,target:null,icon:0})
  const haptics=useMemo(()=>createHaptics(),[]),haptic=useRef({pops:0,ticks:0})
  const root=useRef<Group>(null),layer=useRef<Group>(null)
@@ -165,28 +167,29 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   const vr=shortcuts.current?.pollXR(session,editing)??{fire:false,reason:'inactive'}
   if(vr.fire){vrFires.current++;if(haptics.tick())haptic.current.ticks++}
   const inVR=gl.xr.isPresenting||!!session||users.getLocalMovement?.().isInVR===true
-  const canSummon=session?menuControllers(session).length===1:!inVR&&!touchOnly()
+  const tw=headTagWornHere();if(tw!==tagWorn)setTagWorn(tw)
+  const canSummon=session?menuControllers(session,paletteControls(tw).hand).length===1:!inVR&&!touchOnly()
   if(canSummon!==summonable)setSummonable(canSummon)
   const show=!!(ctx.worn&&ctx.live&&!ctx.paletteOpen&&!inVR&&!editing&&shortcuts.current?.ownsControls())
   if(show!==hintVisible)setHintVisible(show)
   const t=frameClock.elapsedTime
   if(root.current&&t-lastReport.current>.1){
    lastReport.current=t
-   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current,haptics:{...haptic.current}},stand:{...standState.current,summonable},echo,palette:ctx.paletteOpen?paletteLayout.current:null,fired}
+   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current,haptics:{...haptic.current}},stand:{...standState.current,summonable},keys:{headTag:tw,palette:paletteControls(tw).key,vrHand:paletteControls(tw).hand},echo,palette:ctx.paletteOpen?paletteLayout.current:null,fired}
   }
  })
 
  const mode:StandMode=preview?(role==='preview-duplicate'?'preview-blocked':'preview'):live?'live':'ghost'
  const ghostText=placedBy?.isLocalUser?'もう1個置いてあります（これは止まっています。片付けてください）':placer?'同じ人がもう1個置いています（これは止まっています）':'もう1個置いてあります（これは止まっています）'
- const standText=mode==='ghost'?ghostText:worn?'リアクションを選ぶ':'頭に付ける（キー1〜8／VRは右スティック押し込み）'
+ const standText=mode==='ghost'?ghostText:worn?'リアクションを選ぶ':`頭に付ける（キー1〜8／VRは${controls.hand==='left'?'左':'右'}スティック押し込み）`
  return <group ref={root}>
   <group position={position} rotation={rotation} scale={scale}>
    <Stand id={id} mode={mode} texture={texture} geometries={geometries} interactionText={standText} enabled={!preview&&!!localId} onInteract={()=>{if(latest.current.live)act(latest.current.worn?{type:'palette',open:true}:{type:'wear'})}}
     away={live&&wearingHere&&summonable} worn={worn} locateHead={locateHead} now={now} state={standState.current}/>
   </group>
   <group ref={layer}/>
-  {paletteOpen&&worn&&live&&<Palette id={id} texture={texture} geometries={geometries} onPick={(icon,from)=>act({type:'pop',icon,from})} onRemove={()=>act({type:'remove'})} onClose={()=>act({type:'palette',open:false})} report={layout=>{paletteLayout.current=layout}}/>}
+  {paletteOpen&&worn&&live&&<Palette id={id} paletteKey={controls.label} texture={texture} geometries={geometries} onPick={(icon,from)=>act({type:'pop',icon,from})} onRemove={()=>act({type:'remove'})} onClose={()=>act({type:'palette',open:false})} report={layout=>{paletteLayout.current=layout}}/>}
   {live&&<Echo echo={echo} texture={texture} geometries={geometries} now={now}/>}
-  {hintVisible&&<ShortcutHint id={id} fired={fired}/>}
+  {hintVisible&&<ShortcutHint id={id} fired={fired} paletteKey={controls.label} headTag={tagWorn}/>}
  </group>
 }

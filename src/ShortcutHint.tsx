@@ -10,16 +10,22 @@ const css=`.xrift-head-pop-hint,.xrift-head-pop-hint *{pointer-events:none!impor
 .xrift-head-pop-hint .hp-key b{position:absolute;right:-3px;bottom:-3px;min-width:12px;height:12px;border-radius:6px;background:#2a2e3d;color:#fff;font:700 9px/12px system-ui,sans-serif;text-align:center}
 .xrift-head-pop-hint .hp-key.fired .hp-icon{animation:hp-pop .5s cubic-bezier(.2,1.8,.4,1)}
 .xrift-head-pop-hint kbd{font:700 10px system-ui,sans-serif;border:1px solid #c9d1e080;border-radius:3px;padding:1px 4px;color:#fff;margin-left:4px}
+.xrift-head-pop-hint.hp-with-tag .hp-bar{bottom:58px}
 @keyframes hp-pop{0%{transform:scale(.4) translateY(6px)}60%{transform:scale(1.5) translateY(-6px)}100%{transform:scale(1)}}
 @media(max-width:720px){.xrift-head-pop-hint .hp-bar{right:10px;bottom:10px;gap:3px}.xrift-head-pop-hint .hp-key{width:20px;height:20px}}`
 
+/** Worn together with the 頭上看板: its strip sits at the same corner, so this one moves up,
+ * and its digit entries (now reactions) are hidden so it only shows "M メニュー". */
+const withTagCss=`.xrift-presence-shortcuts-v5 .presence-key-hint [data-extra]{display:none!important}`
+
 /** PC-only key strip, screen bottom-right, shown only while worn. The fired icon bounces here
  * too, because the wearer cannot see the top of their own head in first person. */
-export function ShortcutHint({id,fired}:{id:string;fired:{icon:number;seq:number}|null}){
+export function ShortcutHint({id,fired,paletteKey='M',headTag=false}:{id:string;fired:{icon:number;seq:number}|null;paletteKey?:string;headTag?:boolean}){
  const camera=useThree(state=>state.camera),{baseUrl}=useXRift()
  const url=`${baseUrl}${ATLAS.file}`
- return createPortal(<Html position={[0,0,-1]} fullscreen calculatePosition={(_el,_camera,size)=>[size.width/2,size.height/2]} wrapperClass="xrift-head-pop-hint">
+ return createPortal(<Html position={[0,0,-1]} fullscreen calculatePosition={(_el,_camera,size)=>[size.width/2,size.height/2]} wrapperClass={headTag?'xrift-head-pop-hint hp-with-tag':'xrift-head-pop-hint'}>
   <style>{css}</style>
+  {headTag&&<style>{withTagCss}</style>}
   <div className="hp-bar" data-testid="head-pop-hint" data-head-pop-item={id} role="note" aria-label="頭上リアクションのキー">
    {ICONS.map((icon,i)=>{
     const col=i%ATLAS.cols,row=Math.floor(i/ATLAS.cols),hit=fired?.icon===i
@@ -27,7 +33,7 @@ export function ShortcutHint({id,fired}:{id:string;fired:{icon:number;seq:number
      <span className="hp-icon" style={{backgroundImage:`url("${url}")`,backgroundPosition:`${col*100/(ATLAS.cols-1)}% ${row*100/(ATLAS.rows-1)}%`}}/>
      <b>{i+1}</b>
     </span>})}
-   <span><kbd>M</kbd> パレット・外す</span>
+   <span><kbd>{paletteKey}</kbd> パレット・外す</span>
   </div>
  </Html>,camera)
 }

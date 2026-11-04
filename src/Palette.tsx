@@ -25,7 +25,7 @@ const overlay={transparent:true,depthTest:false,depthWrite:false,toneMapped:fals
  * Choice palette in front of the wearer: 8 sticker buttons (with their PC key) plus 外す / 閉じる.
  * Opened by M, by R3 in VR, or by selecting the floating sticker while worn.
  */
-export function Palette({id,texture,geometries,onPick,onRemove,onClose,report}:{id:string;texture:Texture;geometries:PlaneGeometry[];onPick:(icon:number,from:[number,number,number])=>void;onRemove:()=>void;onClose:()=>void;report:(layout:unknown)=>void}){
+export function Palette({id,paletteKey='M',texture,geometries,onPick,onRemove,onClose,report}:{id:string;paletteKey?:string;texture:Texture;geometries:PlaneGeometry[];onPick:(icon:number,from:[number,number,number])=>void;onRemove:()=>void;onClose:()=>void;report:(layout:unknown)=>void}){
  const root=useRef<Group>(null),heading=useRef<number[]|null>(null),users=useUsers(),{camera,gl}=useThree()
  const cells=useMemo(()=>paletteCells(),[])
  const badges=useBadgeGeometries()
@@ -67,7 +67,7 @@ export function Palette({id,texture,geometries,onPick,onRemove,onClose,report}:{
    </Interactable>
   </group>
   <group position={[cells.close.x,cells.close.y,0]}>
-   <Interactable id={`${id}:head-pop:close`} interactionText="閉じる（M）" onInteract={onClose}>
+   <Interactable id={`${id}:head-pop:close`} interactionText={`閉じる（${paletteKey}）`} onInteract={onClose}>
     <mesh renderOrder={21}><planeGeometry args={[PALETTE.pillWidth,PALETTE.pillHeight]}/><meshBasicMaterial map={closeTexture} {...overlay}/></mesh>
    </Interactable>
   </group>

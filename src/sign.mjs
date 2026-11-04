@@ -92,3 +92,19 @@ export function createSignFinder({scene}){
  }
  return api
 }
+
+const TAG_SHORTCUTS=Symbol.for('xrift.presence.shortcuts.v1')
+/**
+ * True while this browser wears a 頭上看板 (its own key registry says a copy is owned).
+ * Then keys are shared out: digits stay reactions (taken first, and the tag ignores a key
+ * that was already handled), M is left to the tag's menu and the palette moves to N;
+ * in VR the tag keeps R3 and the palette moves to L3.
+ */
+export function headTagWornHere(){
+ const r=globalThis[TAG_SHORTCUTS]
+ if(!r?.entries?.values)return false
+ for(const c of r.entries.values()){try{if(c?.owned?.()===true)return true}catch{}}
+ return false
+}
+/** Keys and hand for the palette, given whether the head tag is worn here too. */
+export function paletteControls(tagWorn){return tagWorn?{key:'KeyN',label:'N',hand:'left'}:{key:'KeyM',label:'M',hand:'right'}}

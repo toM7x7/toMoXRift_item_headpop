@@ -85,3 +85,32 @@ test('burst flares and fades early; the tag steps back for the whole pop',()=>{
  assert.equal(yieldEnvelope(0),0);assert.equal(yieldEnvelope(1),1);assert.equal(yieldEnvelope(POP_TOTAL_S),0)
  assert.ok(yieldEnvelope(POP_TOTAL_S-.1)<.5)
 })
+
+test('worn with the head tag: digits stay reactions, the palette moves to N and L3',async()=>{
+ const {headTagWornHere,paletteControls}=await import('../src/sign.mjs')
+ const {shortcutAction}=await import('../src/input.mjs')
+ const {menuControllers}=await import('../src/vr-menu.mjs')
+ const KEY=Symbol.for('xrift.presence.shortcuts.v1')
+ assert.equal(headTagWornHere(),false)
+ let owned=false
+ globalThis[KEY]={entries:new Map([['tag',{owned:()=>owned}]])}
+ try{
+  assert.equal(headTagWornHere(),false,'placed but not worn')
+  owned=true
+  assert.equal(headTagWornHere(),true)
+  const c=paletteControls(true)
+  assert.deepEqual(c,{key:'KeyN',label:'N',hand:'left'})
+  const k=(code,extra={})=>({code,repeat:false,isComposing:false,metaKey:false,shiftKey:false,ctrlKey:false,altKey:false,defaultPrevented:false,target:null,...extra})
+  assert.deepEqual(shortcutAction(k('Digit1'),{paletteKey:c.key}),{type:'pop',icon:0},'1 is still a reaction')
+  assert.equal(shortcutAction(k('KeyM'),{paletteKey:c.key}),null,'M is left to the tag menu')
+  assert.deepEqual(shortcutAction(k('KeyN'),{paletteKey:c.key}),{type:'palette'})
+  assert.deepEqual(shortcutAction(k('KeyN',{ctrlKey:true,altKey:true}),{paletteKey:c.key}),{type:'palette'})
+  assert.equal(shortcutAction(k('KeyN')),null,'N does nothing without the tag')
+  const pad={mapping:'xr-standard',connected:true,buttons:[{},{},{},{}],axes:[0,0,0,0]}
+  const session={inputSources:[{handedness:'left',targetRayMode:'tracked-pointer',gamepad:pad},{handedness:'right',targetRayMode:'tracked-pointer',gamepad:pad}]}
+  assert.equal(menuControllers(session,c.hand)[0].handedness,'left')
+  globalThis[KEY]={entries:new Map([['tag',{owned(){throw new Error('gone')}}]])}
+  assert.equal(headTagWornHere(),false,'a broken registry counts as not worn')
+ }finally{delete globalThis[KEY]}
+ assert.deepEqual(paletteControls(false),{key:'KeyM',label:'M',hand:'right'})
+})

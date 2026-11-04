@@ -1,6 +1,6 @@
 // Scenario checks + screenshots for the local dev page with GPU Chrome.
 // Usage: node scripts/capture.mjs [scenario ...]   (dev server on 5262)
-// Scenarios: room, strip, keys, palette, wear, sign, thumb, dup, other, vr, touch, preview, sdk
+// Scenarios: room, strip, keys, palette, wear, sign, tagkeys, thumb, dup, other, vr, touch, preview, sdk
 import {chromium} from 'playwright'
 import {mkdirSync,writeFileSync} from 'node:fs'
 import {join} from 'node:path'
@@ -188,6 +188,67 @@ const scenarios={
   r=await report(page)
   check('sign: after the pop the tag is back as it was',r.pops.length===0&&(await plate()).opacity===before.opacity)
   await page.evaluate(()=>window.__headPop.clock.run())
+  await page.close()
+ },
+ async tagkeys(){
+  // Both worn: digits stay reactions, M is the tag's menu, the palette moves to N (VR: L3).
+  const page=await open('?sign=1')
+  const loaded=await page.waitForFunction(()=>!!window.__headPop.sign(),null,{timeout:20000}).then(()=>true).catch(()=>false)
+  check('tagkeys: the real head tag loads',loaded)
+  if(!loaded){await page.close();return}
+  const tag=()=>page.evaluate(()=>window.__headPop.sign().presence)
+  await page.evaluate(()=>window.__headPop.sign().act({type:'equip'}))
+  await page.evaluate(()=>window.__headPop.act({type:'wear'}))
+  await page.waitForTimeout(700)
+  await page.mouse.click(1000,760) // focus the canvas (empty floor)
+  const t0=await tag()
+  let r=await report(page)
+  check('tagkeys: both worn, the palette moves to N and the VR menu to the left stick',r.keys.headTag&&r.keys.palette==='KeyN'&&r.keys.vrHand==='left',r.keys)
+  await page.keyboard.press('Digit2');await page.waitForTimeout(200)
+  await page.keyboard.press('Digit3');await page.waitForTimeout(200)
+  r=await report(page);const t1=await tag()
+  check('tagkeys: 2 and 3 pop reactions; the tag neither goes away-mode nor comes off',r.fired?.icon===2&&t1.ownerId==='local-dev'&&t1.mode===t0.mode,{fired:r.fired?.icon,mode:[t0.mode,t1.mode],owner:t1.ownerId})
+  await page.keyboard.press('KeyM');await page.waitForTimeout(250)
+  r=await report(page);let t2=await tag()
+  check('tagkeys: M opens the tag menu, not the palette',t2.menuOpen===true&&!r.paletteOpen,{tagMenu:t2.menuOpen,palette:r.paletteOpen})
+  await page.keyboard.press('KeyM');await page.waitForTimeout(250)
+  await page.keyboard.press('KeyN');await page.waitForTimeout(250)
+  r=await report(page);t2=await tag()
+  const close=await page.evaluate(()=>window.__headPop.project('head-pop-one:head-pop:close')?.text)
+  check('tagkeys: N opens the palette (closing says N)',r.paletteOpen&&!t2.menuOpen&&close==='閉じる（N）',{palette:r.paletteOpen,tagMenu:t2.menuOpen,close})
+  await page.keyboard.press('KeyN');await page.waitForTimeout(250)
+  r=await report(page)
+  const hints=await page.evaluate(()=>{
+   const mine=document.querySelector('[data-testid=head-pop-hint]'),theirs=document.querySelector('[data-testid=presence-shortcut-hint]')
+   const shown=el=>el?[...el.children].filter(c=>getComputedStyle(c).display!=='none').map(c=>c.textContent.trim()):null
+   return {mine:mine?{bottom:getComputedStyle(mine).bottom,text:mine.textContent}:null,theirs:shown(theirs),rects:[mine,theirs].map(e=>e?.getBoundingClientRect().toJSON()??null)}
+  })
+  const overlap=hints.rects[0]&&hints.rects[1]&&!(hints.rects[0].bottom<=hints.rects[1].top||hints.rects[1].bottom<=hints.rects[0].top)
+  check('tagkeys: the two key strips do not overlap; mine says N, theirs only M',!r.paletteOpen&&hints.mine?.text.includes('N')&&!overlap&&JSON.stringify(hints.theirs)===JSON.stringify(['M メニュー']),hints)
+  await page.screenshot({path:join(OUT,'tagkeys-hints.png'),clip:{x:560,y:640,width:720,height:160}})
+  // VR: the tag keeps R3, the palette is on L3.
+  await page.evaluate(()=>{
+   const pad=()=>({mapping:'xr-standard',connected:true,buttons:[0,1,2,3].map(()=>({pressed:false,value:0})),axes:[0,0,0,0],hapticActuators:[]})
+   const left={handedness:'left',targetRayMode:'tracked-pointer',gamepad:pad()},right={handedness:'right',targetRayMode:'tracked-pointer',gamepad:pad()}
+   const session={visibilityState:'visible',inputSources:[left,right],addEventListener(){},removeEventListener(){}}
+   window.__fakeXR={left,right};window.__headPop.gl.xr.getSession=()=>session
+  })
+  await page.waitForTimeout(250)
+  const press=async hand=>{await page.evaluate(h=>{window.__fakeXR[h].gamepad.buttons[3].pressed=true},hand);await page.waitForTimeout(200);await page.evaluate(h=>{window.__fakeXR[h].gamepad.buttons[3].pressed=false},hand);await page.waitForTimeout(200)}
+  await press('right')
+  r=await report(page)
+  check('tagkeys: VR R3 does not open the palette (the tag has it)',!r.paletteOpen&&r.vr.fires===0,{palette:r.paletteOpen,fires:r.vr.fires})
+  await press('left')
+  r=await report(page)
+  check('tagkeys: VR L3 opens the palette',r.paletteOpen&&r.vr.fires===1,{palette:r.paletteOpen,fires:r.vr.fires,stand:r.stand})
+  await page.evaluate(()=>{window.__headPop.gl.xr.getSession=()=>null})
+  await page.evaluate(()=>window.__headPop.act({type:'palette',open:false}))
+  // Take the tag off: M is the palette again.
+  await page.evaluate(()=>window.__headPop.sign().act({type:'remove'}));await page.waitForTimeout(400)
+  await page.mouse.click(1000,760)
+  await page.keyboard.press('KeyM');await page.waitForTimeout(250)
+  r=await report(page)
+  check('tagkeys: tag off, M opens the palette again',r.keys.palette==='KeyM'&&r.paletteOpen,r.keys)
   await page.close()
  },
  async touch(){
