@@ -4,7 +4,7 @@ import {ICONS,ICON_COUNT,atlasRect,isIconIndex} from '../src/icons.mjs'
 import {shortcutAction} from '../src/input.mjs'
 import {popMotion,standMotion,STAND_CYCLE_S,POP_IN_S,POP_HOLD_S,POP_TOTAL_S,easeOutBack} from '../src/motion.mjs'
 import {CHANNEL,createRateGate,makePayload,readEvent} from '../src/channel.mjs'
-import {placementRole,registerPlacement,subscribePlacements,placementsVersion} from '../src/placements.mjs'
+import {bindRenderer,placementRole,placementsVersion,registerPlacement,rendererId,showPop,subscribePlacements} from '../src/placements.mjs'
 import {computePaletteLayout,paletteCells,PALETTE_WIDTH_M,PALETTE_HEIGHT_M} from '../src/palette-layout.mjs'
 
 const key=(code,extra={})=>({code,repeat:false,isComposing:false,metaKey:false,shiftKey:false,ctrlKey:false,altKey:false,defaultPrevented:false,target:null,...extra})
@@ -91,25 +91,43 @@ test('palette sits in front of the body below the eyes and faces the viewer',()=
  assert.ok(cells.remove.x<0&&cells.close.x>0)
 })
 
-test('one stand per room: smallest placed id is primary, previews never count',()=>{
+test('one stand per placer: own extras stop, other people keep theirs, one renderer per room',()=>{
  let changes=0
  const off=subscribePlacements(()=>changes++)
- const b=registerPlacement('b-copy',false)
- assert.equal(placementRole('b-copy'),'primary')
- const p=registerPlacement('z-preview',true)
- assert.equal(placementRole('z-preview'),'preview-duplicate','placing while one exists is greyed')
- assert.equal(placementRole('b-copy'),'primary','a preview never takes over')
- const a=registerPlacement('a-copy',false)
- assert.equal(placementRole('a-copy'),'primary')
- assert.equal(placementRole('b-copy'),'duplicate')
+ const mineB=registerPlacement('b-mine',false,'me')
+ assert.equal(placementRole('b-mine'),'primary')
+ assert.equal(rendererId(),'b-mine')
+ const preview=registerPlacement('z-preview',true,'me')
+ assert.equal(placementRole('z-preview'),'preview-duplicate','placing again is greyed')
+ const theirs=registerPlacement('c-theirs',false,'them')
+ assert.equal(placementRole('c-theirs'),'primary','another person keeps their own stand')
+ const mineA=registerPlacement('a-mine',false,'me')
+ assert.equal(placementRole('a-mine'),'primary')
+ assert.equal(placementRole('b-mine'),'duplicate','my second copy stops')
+ assert.equal(rendererId(),'a-mine','smallest live id renders the pops')
+ const seen=[]
+ const unbindA=bindRenderer('a-mine',(u,i)=>{seen.push(['a',u,i]);return 7})
+ const unbindC=bindRenderer('c-theirs',(u,i)=>{seen.push(['c',u,i]);return 9})
+ assert.equal(showPop('me',2),7)
+ assert.deepEqual(seen,[['a','me',2]],'a pop shows once, through the renderer')
  const v=placementsVersion()
- a()
+ mineA();unbindA()
  assert.ok(placementsVersion()>v)
- assert.equal(placementRole('b-copy'),'primary','the remaining copy takes over')
- b()
+ assert.equal(placementRole('b-mine'),'primary','my remaining copy takes over')
+ assert.equal(rendererId(),'b-mine')
+ assert.equal(showPop('me',1),null,'no display bound yet for the new renderer')
+ mineB()
+ assert.equal(rendererId(),'c-theirs')
+ assert.equal(showPop('me',3),9)
  assert.equal(placementRole('z-preview'),'preview-first')
- p();off()
- assert.ok(changes>=5)
+ theirs();unbindC();preview();off()
+ assert.ok(changes>=6)
+})
+
+test('a null placer (part of the world) is its own group',()=>{
+ const a=registerPlacement('w-1',false,null),b=registerPlacement('w-2',false,null),c=registerPlacement('x-1',false,'u')
+ assert.equal(placementRole('w-1'),'primary');assert.equal(placementRole('w-2'),'duplicate');assert.equal(placementRole('x-1'),'primary')
+ a();b();c()
 })
 
 test('placed sticker never disappears while cycling',()=>{

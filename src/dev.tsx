@@ -14,6 +14,7 @@ import './style.css'
 const PLACEMENT='head-pop-one',SDK_ITEM_ID='00000000-0000-4000-8000-0000000000a1'
 /** ?shot: thumbnail framing (two people close together, no panel, no hint). */
 const SHOT=new URLSearchParams(location.search).has('shot')
+const ME={id:'local-dev',displayName:'わたし',avatarUrl:null,isLocalUser:true},NEIGHBOR={id:'remote-a',displayName:'となりの人',avatarUrl:null,isLocalUser:false}
 const REMOTES=[
  {id:'remote-a',displayName:'となりの人',position:SHOT?{x:.82,y:0,z:-.3}:{x:1.25,y:0,z:-.55},yaw:SHOT?Math.PI-.75:Math.PI-.5,kind:'humanoid' as const,color:'#7fa7c9'},
  {id:'remote-b',displayName:'箱の人',position:{x:-1.3,y:0,z:-.5},yaw:Math.PI+.5,kind:'box' as const,color:'#c9a77f'},
@@ -86,7 +87,7 @@ function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:Retur
 }
 
 function App(){
- const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT,dup=params.has('dup'),previewing=params.has('preview'),solo=params.get('preview')==='solo'
+ const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT,dup=params.has('dup'),other=params.has('other'),previewing=params.has('preview'),solo=params.get('preview')==='solo'
  const clock=useMemo(createDevClock,[]),bus=useMemo(createDevEvents,[])
  const localYaw=SHOT?Math.PI+.45:Math.PI
  const users=useMemo<UsersContextValue>(()=>({
@@ -107,10 +108,12 @@ function App(){
     {ground}
     <mesh rotation={[-Math.PI/2,0,0]}><planeGeometry args={[30,30]}/><meshStandardMaterial color="#dfe6ea"/></mesh>
     <Avatars localYaw={localYaw}/>
-    <Suspense fallback={null}><group onClick={clickInteractable}>{!solo&&<ItemProvider id={PLACEMENT}><Item position={shot?[3,0,-3]:[.7,0,1.45]} clock={clock.now}/></ItemProvider>}
-     {/* ?dup: a second placed copy (larger id, so it is the extra one). ?preview: a copy being placed. */}
-     {dup&&<ItemProvider id="head-pop-two"><Item position={[-.75,0,1.35]} clock={clock.now}/></ItemProvider>}
-     {previewing&&<PlacementStateProvider mode="preview"><ItemProvider id="head-pop-preview"><Item position={[1.55,0,1.1]} clock={clock.now}/></ItemProvider></PlacementStateProvider>}
+    <Suspense fallback={null}><group onClick={clickInteractable}>{!solo&&<ItemProvider id={PLACEMENT} placedBy={ME}><Item position={shot?[3,0,-3]:[.7,0,1.45]} clock={clock.now}/></ItemProvider>}
+     {/* ?dup: my second copy (larger id, so it is my extra one). ?other: a copy the neighbour placed.
+         ?preview: a copy I am placing. */}
+     {dup&&<ItemProvider id="head-pop-two" placedBy={ME}><Item position={[-.75,0,1.35]} clock={clock.now}/></ItemProvider>}
+     {other&&<ItemProvider id="head-pop-three" placedBy={NEIGHBOR}><Item position={[-.1,0,2.05]} clock={clock.now}/></ItemProvider>}
+     {previewing&&<PlacementStateProvider mode="preview"><ItemProvider id="head-pop-preview" placedBy={ME}><Item position={[1.55,0,1.1]} clock={clock.now}/></ItemProvider></PlacementStateProvider>}
     </group></Suspense>
     <Readback clock={clock} bus={bus}/>
     {!shot&&<OrbitControls makeDefault target={[0,1.45,0]}/>}

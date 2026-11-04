@@ -129,9 +129,9 @@ const scenarios={
  async dup(){
   const page=await open('?dup=1')
   const one=await page.evaluate(()=>window.__headPop.report()),two=await page.evaluate(()=>window.__headPop.report('head-pop-two'))
-  check('dup: smallest id is the live stand, the other is an extra',one.role==='primary'&&two.role==='duplicate',[one.role,two.role])
+  check('dup: my first copy is live, my second is an extra',one.role==='primary'&&two.role==='duplicate',[one.role,two.role])
   const ghost=await clickId(page,'head-pop-two:head-pop:stand')
-  check('dup: the extra copy says it is already placed and does not wear',/もう置いて/.test(ghost.text)&&!(await page.evaluate(()=>window.__headPop.report('head-pop-two'))).worn&&!(await report(page)).worn,ghost.text)
+  check('dup: the extra copy says it is already placed and does not wear',/もう1個置いて/.test(ghost.text)&&!(await page.evaluate(()=>window.__headPop.report('head-pop-two'))).worn&&!(await report(page)).worn,ghost.text)
   await clickId(page,'head-pop-one:head-pop:stand')
   await page.evaluate(()=>{const hp=window.__headPop;hp.clock.freeze();hp.act({type:'pop',icon:2});hp.deliver('remote-a',0);hp.clock.step(1)})
   await page.waitForTimeout(250)
@@ -140,6 +140,23 @@ const scenarios={
   await page.evaluate(()=>{window.__headPop.clock.run()})
   await page.waitForTimeout(400)
   await page.screenshot({path:join(OUT,'dup.png')})
+  await page.close()
+ },
+ async other(){
+  const page=await open('?dup=1&other=1')
+  const [one,two,three]=await page.evaluate(()=>['head-pop-one','head-pop-two','head-pop-three'].map(id=>window.__headPop.report(id)))
+  check('other: my extra stops, the neighbour keeps theirs',one.role==='primary'&&two.role==='duplicate'&&three.role==='primary',[one.role,two.role,three.role])
+  check('other: exactly one copy renders the pops',one.renderer&&!two.renderer&&!three.renderer)
+  await clickId(page,'head-pop-three:head-pop:stand')
+  check('other: I can wear the stand the neighbour placed',(await page.evaluate(()=>window.__headPop.report('head-pop-three'))).worn)
+  await page.mouse.click(640,760)
+  await page.keyboard.press('Digit3');await page.waitForTimeout(200)
+  await page.evaluate(()=>window.__headPop.deliver('remote-a',0));await page.waitForTimeout(200)
+  const counts=await page.evaluate(()=>{let n=0;window.__headPop.scene.traverse(o=>{if(o.isMesh&&o.renderOrder===12&&o.parent?.visible)n++});return n})
+  const pops=(await report(page)).pops.map(p=>[p.userId,p.icon])
+  check('other: pops from a non-renderer stand show once, over my head',counts===2&&JSON.stringify(pops)===JSON.stringify([['local-dev',2],['remote-a',0]]),{counts,pops})
+  check('other: one event sent',(await page.evaluate(()=>window.__headPop.sent())).length===1)
+  await page.screenshot({path:join(OUT,'other.png')})
   await page.close()
  },
  async preview(){

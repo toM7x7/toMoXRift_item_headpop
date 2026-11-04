@@ -8,7 +8,7 @@ import {createHeadTracker} from './head.mjs'
 import {isIconIndex} from './icons.mjs'
 import {isEditing} from './input.mjs'
 import {Palette} from './Palette'
-import {placementRole,registerPlacement,subscribePlacements} from './placements.mjs'
+import {bindRenderer,placementRole,registerPlacement,rendererId,showPop,subscribePlacements} from './placements.mjs'
 import {createPopRuntime} from './pops.mjs'
 import {attachRenderHook} from './render-hook.mjs'
 import {registerShortcuts} from './shortcuts.mjs'
@@ -30,15 +30,18 @@ export function Item(props:ItemProps){
 }
 
 function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
- const {id}=useItem(),users=useUsers(),placement=usePlacementState(),{scene,gl}=useThree()
+ const {id,placedBy}=useItem(),users=useUsers(),placement=usePlacementState(),{scene,gl}=useThree()
  const texture=useIconAtlas(),geometries=useIconGeometries()
  // Read the context directly: an older host without instance events still shows local pops.
  const events=useContext(InstanceEventContext)
  const preview=placement.mode==='preview',localId=users.localUser?.id??null
- // One stand per room: extra copies stay grey and inert (XRift has no documented single-place switch).
- useLayoutEffect(()=>registerPlacement(id,preview),[id,preview])
+ // One stand per placer: a person's extra copies stay grey and inert (XRift has no documented
+ // single-place switch). One live copy per room renders the pops (see placements.mjs).
+ const placer=placedBy?.id??null
+ useLayoutEffect(()=>registerPlacement(id,preview,placer),[id,preview,placer])
  const role=useSyncExternalStore(subscribePlacements,()=>placementRole(id),()=>'primary')
- const live=!preview&&role==='primary'
+ const isRenderer=useSyncExternalStore(subscribePlacements,()=>rendererId()===id,()=>true)
+ const live=!preview&&role==='primary',renderer=live&&isRenderer
  const [worn,setWorn]=useState(false),[paletteOpen,setPaletteOpen]=useState(false)
  const [fired,setFired]=useState<{icon:number;seq:number}|null>(null),[hintVisible,setHintVisible]=useState(false)
  const root=useRef<Group>(null),layer=useRef<Group>(null)
@@ -71,7 +74,7 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
     if(!ctx.worn||!isIconIndex(action.icon))return false
     const t=now();if(t-lastLocalPop.current<LOCAL_GAP_S&&t>=lastLocalPop.current)return true
     lastLocalPop.current=t
-    const seq=runtime.current?.show(ctx.localId,action.icon)??0
+    const seq=showPop(ctx.localId,action.icon)??0
     eventsRef.current?.emit(name,makePayload(action.icon))
     setFired({icon:action.icon,seq})
     if(ctx.paletteOpen){latest.current={...ctx,paletteOpen:false};setPaletteOpen(false)}
@@ -81,18 +84,30 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   return false
  },[name,now])
 
- // Other people's pops. The sender never receives its own event; act() shows it locally.
+ // Other people's pops, received once per room by the renderer copy. The sender never
+ // receives its own event; act() shows it locally through showPop().
  useEffect(()=>{
-  if(!events||!live)return
+  if(!events||!renderer)return
   return events.subscribe(name,data=>{
    const e=readEvent(data);if(!e||e.senderId===latest.current.localId)return
    if(!gate.allow(e.senderId,performance.now()))return
    runtime.current?.show(e.senderId,e.icon)
   })
- },[events,name,live,gate])
+ },[events,name,renderer,gate])
 
+ // Every live stand can be worn; keys go to the single worn copy (shortcuts.mjs).
  useEffect(()=>{
-  if(!live||!root.current||!layer.current)return
+  if(!live||!root.current)return
+  const keys=registerShortcuts(id,{worn:()=>latest.current.worn&&latest.current.live,handle:act})
+  shortcuts.current=keys
+  const node=root.current
+  node.userData.headPopActions={act}
+  return()=>{keys.dispose();shortcuts.current=null;delete node.userData.headPopActions}
+ },[id,live,act])
+
+ // The room's renderer copy owns the head tracking and the pooled icons.
+ useEffect(()=>{
+  if(!renderer||!root.current||!layer.current)return
   const proxy={
    getLocalMovement:()=>usersRef.current.getLocalMovement(),
    getMovement:(userId:string)=>usersRef.current.getMovement(userId),
@@ -103,12 +118,9 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   const pops=createPopRuntime({layer:layer.current,texture,geometries,tracker,getLocalId:()=>latest.current.localId,now})
   runtime.current=pops
   const hook=attachRenderHook(scene,{place:()=>pops.place(),face:camera=>pops.face(camera)})
-  const keys=registerShortcuts(id,{worn:()=>latest.current.worn&&latest.current.live,handle:act})
-  shortcuts.current=keys
-  const node=root.current
-  node.userData.headPopActions={act}
-  return()=>{keys.dispose();hook.dispose();pops.dispose();tracker.clear();runtime.current=null;shortcuts.current=null;delete node.userData.headPopActions;delete node.userData.headPop}
- },[scene,id,live,texture,geometries,act,now])
+  const unbind=bindRenderer(id,(userId:string,icon:number)=>pops.show(userId,icon))
+  return()=>{unbind();hook.dispose();pops.dispose();tracker.clear();runtime.current=null}
+ },[scene,id,renderer,texture,geometries,now])
 
  // A copy that stops being the room's stand (another copy took over) lets go of the wearer.
  useEffect(()=>{if(!live&&latest.current.worn){latest.current={...latest.current,worn:false,paletteOpen:false};setWorn(false);setPaletteOpen(false)}},[live])
@@ -123,12 +135,13 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   const t=frameClock.elapsedTime
   if(root.current&&t-lastReport.current>.1){
    lastReport.current=t
-   root.current.userData.headPop={itemId:id,role,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current},palette:ctx.paletteOpen?paletteLayout.current:null,fired}
+   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current},palette:ctx.paletteOpen?paletteLayout.current:null,fired}
   }
  })
 
  const mode:StandMode=preview?(role==='preview-duplicate'?'preview-blocked':'preview'):live?'live':'ghost'
- const standText=mode==='ghost'?'この部屋にはもう置いてあります（これは止まっています）':worn?'リアクションを選ぶ':'頭に付ける（キー1〜8／VRは右スティック押し込み）'
+ const ghostText=placedBy?.isLocalUser?'もう1個置いてあります（これは止まっています。片付けてください）':placer?'同じ人がもう1個置いています（これは止まっています）':'もう1個置いてあります（これは止まっています）'
+ const standText=mode==='ghost'?ghostText:worn?'リアクションを選ぶ':'頭に付ける（キー1〜8／VRは右スティック押し込み）'
  return <group ref={root}>
   <group position={position} rotation={rotation} scale={scale}>
    <Stand id={id} mode={mode} texture={texture} geometries={geometries} interactionText={standText} enabled={!preview&&!!localId} onInteract={()=>{if(latest.current.live)act(latest.current.worn?{type:'palette',open:true}:{type:'wear'})}}/>

@@ -1,41 +1,71 @@
-const KEY=Symbol.for('xrift.head-pop.placements.v1')
+const KEY=Symbol.for('xrift.head-pop.placements.v2')
 
 /**
- * One reaction stand per room, enforced by the item itself.
+ * One stand per person who placed it, enforced by the item itself.
  *
  * XRift does not document any "single place" switch (no official repo, doc or template has
- * one, and the item loader only reads `Item`), so every placed copy registers here and the
- * copy with the smallest placement id is the primary. Every client sees the same placed
- * copies, so every client picks the same primary. Preview copies never count.
+ * one, and the item loader only reads `Item`), so a user can keep placing copies. Every
+ * placed copy registers here with `useItem().placedBy.id` (set by the server):
+ * - within one placer, the copy with the smallest placement id is live, the rest are extras;
+ * - copies placed by different people all stay live and usable;
+ * - exactly one live copy per room (the smallest id) shows and receives the pops, so the
+ *   reactions never double however many stands there are.
+ * Every client sees the same copies and placers, so every client makes the same choice.
+ * Preview copies never count. A null placer (part of the world itself) is its own group.
  */
 function registry(){
- return globalThis[KEY]??={entries:new Map(),listeners:new Set(),version:0}
+ return globalThis[KEY]??={entries:new Map(),listeners:new Set(),renderers:new Map(),version:0}
 }
 function notify(r){r.version++;for(const l of [...r.listeners])l()}
+const group=placer=>typeof placer==='string'&&placer?placer:''
 
-/** Placed (non-preview) ids, sorted: the first one is the primary. */
-export function placedIds(){
- return [...registry().entries].filter(([,e])=>!e.preview).map(([id])=>id).sort()
+function liveIds(r=registry()){
+ const first=new Map()
+ for(const [id,e] of r.entries){if(e.preview)continue;const g=group(e.placer),cur=first.get(g);if(cur===undefined||id<cur)first.set(g,id)}
+ return [...first.values()].sort()
 }
 
 /** @returns {'primary'|'duplicate'|'preview-first'|'preview-duplicate'} */
 export function placementRole(id){
  const r=registry(),entry=r.entries.get(id)
- const placed=placedIds()
- if(entry?.preview)return placed.length?'preview-duplicate':'preview-first'
- return placed[0]===id||!placed.length?'primary':'duplicate'
+ if(!entry)return 'primary'
+ const g=group(entry.placer)
+ const mine=[...r.entries].filter(([,e])=>!e.preview&&group(e.placer)===g).map(([other])=>other).sort()
+ if(entry.preview)return mine.length?'preview-duplicate':'preview-first'
+ return mine[0]===id?'primary':'duplicate'
 }
 
-export function registerPlacement(id,preview){
- const r=registry(),token={preview:!!preview}
+/** The one live copy in the room that shows and receives pops. */
+export function rendererId(){return liveIds()[0]??null}
+
+/**
+ * @param {string} id placement id
+ * @param {boolean} preview
+ * @param {string|null} [placer] useItem().placedBy?.id
+ */
+export function registerPlacement(id,preview,placer=null){
+ const r=registry(),token={preview:!!preview,placer}
  r.entries.set(id,token);notify(r)
- return ()=>{if(r.entries.get(id)===token){r.entries.delete(id);notify(r)}if(!r.entries.size&&!r.listeners.size)delete globalThis[KEY]}
+ return ()=>{if(r.entries.get(id)===token){r.entries.delete(id);notify(r)}cleanup(r)}
 }
 
 export function subscribePlacements(listener){
  const r=registry();r.listeners.add(listener)
- return ()=>{r.listeners.delete(listener);if(!r.entries.size&&!r.listeners.size)delete globalThis[KEY]}
+ return ()=>{r.listeners.delete(listener);cleanup(r)}
 }
+function cleanup(r){if(!r.entries.size&&!r.listeners.size&&!r.renderers.size&&globalThis[KEY]===r)delete globalThis[KEY]}
 
 /** Changes whenever any copy registers or leaves (for useSyncExternalStore). */
 export function placementsVersion(){return registry().version}
+
+/** The renderer copy offers its display here so a pop fired from any live stand shows once. */
+/** @param {string} id @param {(userId:string,icon:number)=>number} show */
+export function bindRenderer(id,show){
+ const r=registry();r.renderers.set(id,show)
+ return ()=>{if(r.renderers.get(id)===show)r.renderers.delete(id);cleanup(r)}
+}
+/** @returns {number|null} the pop sequence number, or null when no renderer is ready */
+export function showPop(userId,icon){
+ const r=registry(),show=r.renderers.get(rendererId())
+ return show?show(userId,icon):null
+}
