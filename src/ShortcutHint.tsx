@@ -27,7 +27,7 @@ export function ShortcutHint({id,fired}:{id:string;fired:{icon:number;seq:number
      <span className="hp-icon" style={{backgroundImage:`url("${url}")`,backgroundPosition:`${col*100/(ATLAS.cols-1)}% ${row*100/(ATLAS.rows-1)}%`}}/>
      <b>{i+1}</b>
     </span>})}
-   <span><kbd>M</kbd> パレット</span>
+   <span><kbd>M</kbd> パレット・外す</span>
   </div>
  </Html>,camera)
 }

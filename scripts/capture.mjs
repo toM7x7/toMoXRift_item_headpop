@@ -1,6 +1,6 @@
 // Scenario checks + screenshots for the local dev page with GPU Chrome.
 // Usage: node scripts/capture.mjs [scenario ...]   (dev server on 5262)
-// Scenarios: room, strip, keys, palette, sdk
+// Scenarios: room, strip, keys, palette, wear, thumb, dup, other, vr, touch, preview, sdk
 import {chromium} from 'playwright'
 import {mkdirSync,writeFileSync} from 'node:fs'
 import {join} from 'node:path'
@@ -13,8 +13,8 @@ const browser=await chromium.launch({executablePath:exe,args:['--use-angle=d3d11
 const results={},errors=[]
 const check=(name,ok,detail)=>{results[name]={ok:!!ok,detail};console.log(ok?'PASS':'FAIL',name,detail===undefined?'':JSON.stringify(detail))}
 
-async function open(query='',waitId){
- const page=await browser.newPage({viewport:{width:1280,height:800}})
+async function open(query='',waitId,options={}){
+ const page=await browser.newPage({viewport:{width:1280,height:800},...options})
  page.on('pageerror',e=>errors.push(String(e)))
  page.on('console',m=>{if(m.type()==='error'||m.text().includes('[head-pop]'))errors.push(m.text())})
  await page.goto(BASE+query)
@@ -23,6 +23,8 @@ async function open(query='',waitId){
  return page
 }
 const report=page=>page.evaluate(()=>window.__headPop.report())
+const reportOf=(page,id)=>page.evaluate(id=>window.__headPop.report(id),id)
+const onScreen=(page,id)=>page.evaluate(id=>!!window.__headPop.project(id),id)
 /** Real mouse click on an Interactable by id. */
 async function clickId(page,id){
  const p=await page.evaluate(id=>window.__headPop.project(id),id)
@@ -95,9 +97,12 @@ const scenarios={
  async palette(){
   const page=await open()
   await clickId(page,'head-pop-one:head-pop:stand')
-  await clickId(page,'head-pop-one:head-pop:stand')
+  await page.waitForTimeout(800)
   let r=await report(page)
-  check('palette: selecting the sticker while worn opens it',r.paletteOpen&&r.palette?.status==='ready',r.palette)
+  check('palette: the worn stand leaves its spot',r.worn&&r.stand.away&&r.stand.p===1&&r.stand.kind==='head'&&!(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
+  await page.keyboard.press('KeyM');await page.waitForTimeout(200)
+  r=await report(page)
+  check('palette: M opens it while worn',r.paletteOpen&&r.palette?.status==='ready',r.palette)
   await page.waitForTimeout(300)
   await page.screenshot({path:join(OUT,'palette.png')})
   const ids=['icon-0','icon-3','icon-7','remove','close'].map(k=>`head-pop-one:head-pop:${k}`)
@@ -106,12 +111,56 @@ const scenarios={
   await clickId(page,'head-pop-one:head-pop:icon-4')
   r=await report(page)
   check('palette: a button pops and closes',r.fired?.icon===4&&!r.paletteOpen&&r.pops.some(p=>p.userId==='local-dev'&&p.icon===4))
-  await clickId(page,'head-pop-one:head-pop:stand')
+  await page.keyboard.press('KeyM');await page.waitForTimeout(200)
   await clickId(page,'head-pop-one:head-pop:remove')
   r=await report(page)
   check('palette: 外す takes it off',!r.worn&&!r.paletteOpen&&!r.hint)
+  await page.waitForTimeout(800)
+  r=await report(page)
+  check('palette: the stand is back on its spot and can be worn again',r.stand.p===0&&!r.stand.away&&(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
   await page.keyboard.press('Digit2');await page.waitForTimeout(150)
   check('palette: keys stop after taking off',(await report(page)).fired?.icon===4)
+  await page.close()
+ },
+ async wear(){
+  const page=await open()
+  await page.evaluate(()=>window.__headPop.view([2.9,1.75,3.0],[.25,1.6,.55]))
+  await page.waitForTimeout(300)
+  // Frame-stepped: the clock is frozen before the real click, so the hop starts at 0.
+  await page.evaluate(()=>window.__headPop.clock.freeze())
+  await clickId(page,'head-pop-one:head-pop:stand')
+  let r=await report(page)
+  check('wear: real click wears it',r.worn,r.stand)
+  const shots=[]
+  let last=0
+  for(const t of [0,.08,.16,.24,.32,.4,.48,.56]){
+   await page.evaluate(dt=>window.__headPop.clock.step(dt),t-last);last=t;await page.waitForTimeout(160)
+   const s=(await report(page)).stand
+   shots.push([t,+s.p.toFixed(2),s.target])
+   await page.screenshot({path:join(OUT,`wear-${String(Math.round(t*100)).padStart(3,'0')}.png`)})
+  }
+  r=await report(page)
+  check('wear: it hops to where my pops appear and is gone',r.stand.p===1&&shots.some(s=>s[2]==='head'),shots)
+  check('wear: nothing left to select at the spot',!(await onScreen(page,'head-pop-one:head-pop:stand')))
+  await page.evaluate(()=>window.__headPop.act({type:'remove'}))
+  last=0
+  for(const t of [0,.16,.32,.48,.6]){
+   await page.evaluate(dt=>window.__headPop.clock.step(dt),t-last);last=t;await page.waitForTimeout(110)
+   await page.screenshot({path:join(OUT,`back-${String(Math.round(t*100)).padStart(3,'0')}.png`)})
+  }
+  r=await report(page)
+  check('wear: 外す brings it back to the spot',!r.worn&&r.stand.p===0&&(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
+  await page.evaluate(()=>window.__headPop.clock.run())
+  await page.close()
+ },
+ async touch(){
+  // A phone: no M key, so the stand stays and opens the palette.
+  const page=await open('',undefined,{hasTouch:true,isMobile:true,viewport:{width:900,height:800}})
+  let r=await report(page)
+  check('touch: no fine pointer, the stand stays as the way to the palette',r.stand.summonable===false,{summonable:r.stand.summonable,any:await page.evaluate(()=>matchMedia('(any-pointer: fine)').matches)})
+  await page.evaluate(()=>window.__headPop.act({type:'wear'}));await page.waitForTimeout(800)
+  r=await report(page)
+  check('touch: worn, still on its spot',r.worn&&!r.stand.away&&r.stand.p===0&&(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
   await page.close()
  },
  async thumb(){
@@ -148,7 +197,11 @@ const scenarios={
   check('other: my extra stops, the neighbour keeps theirs',one.role==='primary'&&two.role==='duplicate'&&three.role==='primary',[one.role,two.role,three.role])
   check('other: exactly one copy renders the pops',one.renderer&&!two.renderer&&!three.renderer)
   await clickId(page,'head-pop-three:head-pop:stand')
-  check('other: I can wear the stand the neighbour placed',(await page.evaluate(()=>window.__headPop.report('head-pop-three'))).worn)
+  check('other: I can wear the stand the neighbour placed',(await reportOf(page,'head-pop-three')).worn)
+  await page.waitForTimeout(800)
+  {const [a,b,c]=await Promise.all(['head-pop-one','head-pop-two','head-pop-three'].map(id=>reportOf(page,id)))
+   check('other: while worn, both live stands leave for me (the worn one to my head, the other folds)',c.stand.p===1&&c.stand.kind==='head'&&a.stand.p===1&&a.stand.kind==='shrink',[a.stand,c.stand])
+   check('other: my grey extra stays so it can be cleaned up',b.stand.p===0&&(await onScreen(page,'head-pop-two:head-pop:stand')))}
   await page.mouse.click(640,760)
   await page.keyboard.press('Digit3');await page.waitForTimeout(200)
   await page.evaluate(()=>window.__headPop.deliver('remote-a',0));await page.waitForTimeout(200)
@@ -167,7 +220,7 @@ const scenarios={
    const calls=[],buttons=[0,1,2,3].map(()=>({pressed:false,value:0}))
    const right={handedness:'right',targetRayMode:'tracked-pointer',gamepad:{mapping:'xr-standard',connected:true,buttons,axes:[0,0,0,0],hapticActuators:[{pulse:(i,ms)=>calls.push([+i.toFixed(2),ms])}]}}
    const session={visibilityState:'visible',inputSources:[right],addEventListener(){},removeEventListener(){}}
-   window.__fakeXR={calls,buttons}
+   window.__fakeXR={calls,buttons,session,right}
    window.__headPop.gl.xr.getSession=()=>session
   })
   await page.waitForTimeout(250)
@@ -186,12 +239,26 @@ const scenarios={
   const calls=await page.evaluate(()=>window.__fakeXR.calls)
   check('vr: picking a button pops it and taps twice in the hand',r.fired?.icon===2&&!r.paletteOpen&&JSON.stringify(calls)==='[[0.25,18],[0.45,30],[0.85,55]]',calls)
   check('vr: an echo starts at the pressed button',r.echo?.icon===2&&Array.isArray(r.echo.position),r.echo)
+  check('vr: with a controller the stand is away (R3 opens the palette)',r.stand.away&&r.stand.summonable,r.stand)
   const clip={x:Math.round(at.x-110),y:Math.round(at.y-190),width:220,height:240}
   let last=0
   for(const t of [.04,.12,.24,.45,.7,.95]){
    await page.evaluate(dt=>window.__headPop.clock.step(dt),t-last);last=t;await page.waitForTimeout(90)
    await page.screenshot({path:join(OUT,`echo-${String(Math.round(t*100)).padStart(3,'0')}.png`),clip})
   }
+  await page.evaluate(()=>window.__headPop.clock.run())
+  // Hand tracking only: no R3, so the stand comes back as the way to the palette.
+  await page.evaluate(()=>{window.__fakeXR.session.inputSources=[{handedness:'right',targetRayMode:'tracked-pointer',hand:{}}]})
+  await page.waitForTimeout(900)
+  r=await report(page)
+  const hand=await page.evaluate(()=>window.__headPop.project('head-pop-one:head-pop:stand'))
+  check('vr: hands only, the stand comes back and opens the palette',r.worn&&!r.stand.summonable&&!r.stand.away&&r.stand.p===0&&hand?.text==='リアクションを選ぶ',{stand:r.stand,text:hand?.text})
+  await page.evaluate(()=>{window.__fakeXR.session.inputSources=[window.__fakeXR.right]})
+  await page.waitForTimeout(900)
+  r=await report(page)
+  check('vr: controllers back, the stand leaves again',r.stand.away&&r.stand.p===1,r.stand)
+  await page.evaluate(()=>window.__headPop.act({type:'remove'}));await page.waitForTimeout(150)
+  check('vr: taking it off ticks the hand',(await report(page)).vr.haptics.ticks===2,(await report(page)).vr.haptics)
   await page.close()
  },
  async preview(){
@@ -220,6 +287,8 @@ const scenarios={
   if(!(await report(page)).worn){await page.mouse.click(640,400);await page.waitForTimeout(400)}
   const before=await report(page)
   check('sdk: center-ray click on the sticker wears it',before.worn)
+  await page.waitForTimeout(800)
+  {const r=await report(page);check('sdk: worn, the sticker leaves its spot for my head',r.stand.away&&r.stand.p===1&&r.stand.kind==='head',r.stand)}
   await page.evaluate(()=>window.__headPop.act({type:'remove'}));await page.waitForTimeout(150)
   await page.keyboard.press('Control+Alt+Digit3');await page.waitForTimeout(200)
   check('sdk: keys do nothing before wearing',(await report(page)).pops.length===0)

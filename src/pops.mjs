@@ -72,6 +72,8 @@ export function createPopRuntime({layer,texture,geometries,tracker,getLocalId,no
     setWorldTransform(slot.holder,slot.position,camQ,1)
    }
   },
+  /** Where userId's pops appear right now (for the stand's hop to the head). */
+  locate(userId,out){return tracker.locate(userId,getLocalId(),now(),out)},
   report(){return [...active.values()].map(s=>({userId:s.userId,icon:s.icon,seq:s.seq,age:now()-s.start,source:s.source,visible:s.holder.visible,position:s.position.toArray()}))},
   dispose(){for(const s of slots){s.material.dispose();layer.remove(s.holder)}active.clear()},
  }

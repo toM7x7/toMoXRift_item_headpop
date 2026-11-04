@@ -58,14 +58,27 @@ function cleanup(r){if(!r.entries.size&&!r.listeners.size&&!r.renderers.size&&gl
 /** Changes whenever any copy registers or leaves (for useSyncExternalStore). */
 export function placementsVersion(){return registry().version}
 
-/** The renderer copy offers its display here so a pop fired from any live stand shows once. */
-/** @param {string} id @param {(userId:string,icon:number)=>number} show */
-export function bindRenderer(id,show){
- const r=registry();r.renderers.set(id,show)
- return ()=>{if(r.renderers.get(id)===show)r.renderers.delete(id);cleanup(r)}
+/**
+ * The renderer copy offers its display here so a pop fired from any live stand shows once.
+ * @param {string} id
+ * @param {(userId:string,icon:number)=>number} show
+ * @param {((userId:string,out:import('three').Vector3)=>('head'|'movement'|null))|null} [locate] where that user's pops appear
+ */
+export function bindRenderer(id,show,locate=null){
+ const r=registry(),entry={show,locate};r.renderers.set(id,entry)
+ return ()=>{if(r.renderers.get(id)===entry)r.renderers.delete(id);cleanup(r)}
 }
 /** @returns {number|null} the pop sequence number, or null when no renderer is ready */
 export function showPop(userId,icon){
- const r=registry(),show=r.renderers.get(rendererId())
- return show?show(userId,icon):null
+ const r=registry(),entry=r.renderers.get(rendererId())
+ return entry?entry.show(userId,icon):null
+}
+/**
+ * Where userId's pops appear (the measured head top + clearance), through the renderer.
+ * @param {string} userId @param {import('three').Vector3} out
+ * @returns {'head'|'movement'|null}
+ */
+export function locateUser(userId,out){
+ const entry=registry().renderers.get(rendererId())
+ return entry?.locate?entry.locate(userId,out):null
 }
