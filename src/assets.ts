@@ -38,4 +38,24 @@ export function useLabelTexture(draw:(c:CanvasRenderingContext2D,w:number,h:numb
  return texture
 }
 
+/** White comic rays with the stickers' navy outline; each pop tints it with its icon colour. */
+export function useBurstTexture():CanvasTexture{
+ return useLabelTexture((c,w,h)=>{
+  const cx=w/2,cy=h/2,rays=12
+  const path=(i:number)=>{
+   const long=i%2===0,a=i/rays*Math.PI*2-Math.PI/2,inner=long?.27*w:.31*w,outer=long?.48*w:.41*w,half=long?.13:.1
+   c.beginPath()
+   c.moveTo(cx+Math.cos(a-half)*inner,cy+Math.sin(a-half)*inner)
+   c.lineTo(cx+Math.cos(a)*outer,cy+Math.sin(a)*outer)
+   c.lineTo(cx+Math.cos(a+half)*inner,cy+Math.sin(a+half)*inner)
+   c.closePath()
+  }
+  c.lineJoin='round'
+  c.strokeStyle='#1f2638';c.lineWidth=w*.035
+  for(let i=0;i<rays;i++){path(i);c.stroke()}
+  c.fillStyle='#ffffff'
+  for(let i=0;i<rays;i++){path(i);c.fill()}
+ },256,256,[])
+}
+
 export const FONT='"Yu Gothic","Hiragino Sans","Noto Sans JP","Noto Sans CJK JP",sans-serif'

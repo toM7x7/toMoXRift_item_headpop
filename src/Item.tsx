@@ -2,7 +2,7 @@ import {Suspense,useCallback,useContext,useEffect,useLayoutEffect,useMemo,useRef
 import {useFrame,useThree} from '@react-three/fiber'
 import {InstanceEventContext,useItem,usePlacementState,useUsers,type UsersContextValue} from '@xrift/world-components'
 import {Group,Vector3} from 'three'
-import {useIconAtlas,useIconGeometries} from './assets'
+import {useBurstTexture,useIconAtlas,useIconGeometries} from './assets'
 import {CHANNEL,createRateGate,makePayload,readEvent} from './channel.mjs'
 import {createHeadTracker,ICON_CLEARANCE_M} from './head.mjs'
 import {isIconIndex} from './icons.mjs'
@@ -14,6 +14,7 @@ import {bindRenderer,locateUser,placementRole,registerPlacement,rendererId,showP
 import {createPopRuntime} from './pops.mjs'
 import {attachRenderHook} from './render-hook.mjs'
 import {registerShortcuts} from './shortcuts.mjs'
+import {createSignFinder} from './sign.mjs'
 import {ShortcutHint} from './ShortcutHint'
 import {Stand,type StandFlight,type StandMode} from './Stand'
 import {menuControllers} from './vr-menu.mjs'
@@ -37,7 +38,7 @@ export function Item(props:ItemProps){
 
 function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  const {id,placedBy}=useItem(),users=useUsers(),placement=usePlacementState(),{scene,gl}=useThree()
- const texture=useIconAtlas(),geometries=useIconGeometries()
+ const texture=useIconAtlas(),geometries=useIconGeometries(),burstTexture=useBurstTexture()
  // Read the context directly: an older host without instance events still shows local pops.
  const events=useContext(InstanceEventContext)
  const preview=placement.mode==='preview',localId=users.localUser?.id??null
@@ -133,12 +134,14 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
    getAvatarHeight:(userId:string)=>usersRef.current.getAvatarHeight?.(userId),
   }
   const tracker=createHeadTracker({scene,excludeRoot:root.current,users:proxy})
-  const pops=createPopRuntime({layer:layer.current,texture,geometries,tracker,getLocalId:()=>latest.current.localId,now})
+  // A head tag (頭上看板) worn by the same person: stack above it and let it step back.
+  const signs=createSignFinder({scene})
+  const pops=createPopRuntime({layer:layer.current,texture,geometries,tracker,getLocalId:()=>latest.current.localId,now,signs,burstTexture})
   runtime.current=pops
-  const hook=attachRenderHook(scene,{place:()=>pops.place(),face:camera=>pops.face(camera)})
+  const hook=attachRenderHook(scene,{place:()=>pops.place(),face:camera=>pops.face(camera),after:()=>pops.after()})
   const unbind=bindRenderer(id,(userId:string,icon:number)=>pops.show(userId,icon),(userId:string,out:Vector3)=>pops.locate(userId,out))
-  return()=>{unbind();hook.dispose();pops.dispose();tracker.clear();runtime.current=null}
- },[scene,id,renderer,texture,geometries,now])
+  return()=>{unbind();hook.dispose();pops.dispose();signs.clear();tracker.clear();runtime.current=null}
+ },[scene,id,renderer,texture,geometries,burstTexture,now])
 
  useEffect(()=>()=>haptics.attach(null),[haptics])
 

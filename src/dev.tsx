@@ -1,4 +1,5 @@
-import {Suspense,useEffect,useMemo,useRef,useState} from 'react'
+/// <reference types="vite/client" />
+import {Suspense,lazy,useEffect,useMemo,useRef,useState,type ComponentType} from 'react'
 import {createRoot} from 'react-dom/client'
 import {Canvas,useFrame,useThree,type ThreeEvent} from '@react-three/fiber'
 import {OrbitControls} from '@react-three/drei'
@@ -12,6 +13,11 @@ import {createBoxAvatar,createMannequin} from './dev/mannequin'
 import './style.css'
 
 const PLACEMENT='head-pop-one',SDK_ITEM_ID='00000000-0000-4000-8000-0000000000a1'
+/** ?sign: the real 頭上看板 (toMoXRift_item_headkanban v8) from a sibling checkout, if present.
+ * Clone it to ../../references/headkanban-ref to try both on one head. */
+const signLoaders=import.meta.glob('../../../references/headkanban-ref/src/Item.tsx')
+const loadSign=Object.values(signLoaders)[0] as undefined|(()=>Promise<{Item:ComponentType<{position?:[number,number,number]}>}>)
+const HeadTag=loadSign?lazy(()=>loadSign().then(m=>({default:m.Item}))):null
 /** ?shot: thumbnail framing (two people close together, no panel, no hint). */
 const SHOT=new URLSearchParams(location.search).has('shot')
 const ME={id:'local-dev',displayName:'わたし',avatarUrl:null,isLocalUser:true},NEIGHBOR={id:'remote-a',displayName:'となりの人',avatarUrl:null,isLocalUser:false}
@@ -73,6 +79,8 @@ function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:Retur
   ;(window as any).__headPop={
    report:(id?:string)=>find(id)?.userData.headPop??null,
    act:(action:unknown,id?:string)=>find(id)?.userData.headPopActions?.act(action)??false,
+   /** ?sign: the head tag's root (its userData.presence / presenceActions). */
+   sign(){let found:any=null;scene.traverse(o=>{if(!found&&o.userData.presenceActions)found=o});return found?{presence:found.userData.presence??null,act:(a:unknown)=>found.userData.presenceActions.act(a)}:null},
    deliver:(senderId:string,icon:number)=>bus.deliver(CHANNEL,senderId,makePayload(icon)),
    sent:()=>bus.sent.map(s=>({...s})),
    clock,scene,camera,gl,
@@ -87,7 +95,7 @@ function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:Retur
 }
 
 function App(){
- const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT,dup=params.has('dup'),other=params.has('other'),previewing=params.has('preview'),solo=params.get('preview')==='solo'
+ const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT,dup=params.has('dup'),other=params.has('other'),previewing=params.has('preview'),solo=params.get('preview')==='solo',sign=params.has('sign')
  const clock=useMemo(createDevClock,[]),bus=useMemo(createDevEvents,[])
  const localYaw=SHOT?Math.PI+.45:Math.PI
  const users=useMemo<UsersContextValue>(()=>({
@@ -113,6 +121,7 @@ function App(){
          ?preview: a copy I am placing. */}
      {dup&&<ItemProvider id="head-pop-two" placedBy={ME}><Item position={[-.75,0,1.35]} clock={clock.now}/></ItemProvider>}
      {other&&<ItemProvider id="head-pop-three" placedBy={NEIGHBOR}><Item position={[-.1,0,2.05]} clock={clock.now}/></ItemProvider>}
+     {sign&&HeadTag&&<ItemProvider id="head-tag-one" placedBy={ME}><HeadTag position={[-.7,0,1.3]}/></ItemProvider>}
      {previewing&&<PlacementStateProvider mode="preview"><ItemProvider id="head-pop-preview" placedBy={ME}><Item position={[1.55,0,1.1]} clock={clock.now}/></ItemProvider></PlacementStateProvider>}
     </group></Suspense>
     <Readback clock={clock} bus={bus}/>

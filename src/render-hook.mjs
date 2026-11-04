@@ -6,7 +6,8 @@ const KEY=Symbol.for('xrift.head-pop.render-hook.v1')
  * Nested renders (mirrors, render targets) only re-face; the outermost render also places.
  * One chained hook per scene is shared by every copy; other wrappers are preserved.
  * @param {any} scene
- * @param {{place:(camera:any)=>void,face:(camera:any)=>void}} entry
+ * @param {{place:(camera:any)=>void,face:(camera:any)=>void,after?:()=>void}} entry
+ * `after` runs once the outermost render has finished (to undo per-render changes).
  */
 export function attachRenderHook(scene,entry){
  let hook=scene[KEY]
@@ -21,7 +22,7 @@ export function attachRenderHook(scene,entry){
   }
   function onAfter(...args){
    try{after.apply(this,args)}
-   finally{stack.pop();if(stack.length)run((e,c)=>e.face(c),stack[stack.length-1])}
+   finally{stack.pop();if(stack.length)run((e,c)=>e.face(c),stack[stack.length-1]);else run(e=>e.after?.())}
   }
   scene.onBeforeRender=onBefore;scene.onAfterRender=onAfter
   hook={entries,release(){if(entries.size)return;if(scene.onBeforeRender===onBefore&&scene.onAfterRender===onAfter){scene.onBeforeRender=before;scene.onAfterRender=after;delete scene[KEY]}}}

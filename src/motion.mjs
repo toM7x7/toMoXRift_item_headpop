@@ -79,3 +79,21 @@ export function standMotion(t){
  else j=.06*Math.sin((p-IN)*20)*Math.exp(-(p-IN)*8)
  return {icon,sx:s*(1+j),sy:s*(1-j),dy:.02*Math.sin(t*1.4)}
 }
+
+/** A comic burst behind the icon as it pops in: rays flare out and fade. */
+export const BURST_S = .42
+export function burstMotion(t){
+ if(!(t>=0)||t>=BURST_S)return {visible:false,scale:0,opacity:0,rot:0}
+ const x=t/BURST_S
+ return {visible:true,scale:.75+1.05*(1-(1-x)*(1-x)),opacity:x<.35?1:1-(x-.35)/.65,rot:.35*x}
+}
+
+/** How far a head tag steps back while a reaction shows (0..1), over the pop's life. */
+export function yieldEnvelope(t,hold=POP_HOLD_S){
+ const total=POP_IN_S+hold+POP_OUT_S
+ if(!(t>=0)||t>=total)return 0
+ const IN=.15,OUT=.35
+ if(t<IN)return t/IN
+ if(t>total-OUT)return (total-t)/OUT
+ return 1
+}

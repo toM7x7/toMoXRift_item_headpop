@@ -1,13 +1,14 @@
-/** The 8 reactions, in key order (1–8) and atlas order (left→right, top→bottom). */
+/** The 8 reactions, in key order (1–8) and atlas order (left→right, top→bottom).
+ * color: the sticker's main colour (tints the pop-in burst). */
 export const ICONS = Object.freeze([
- Object.freeze({key:'surprise',label:'びっくり',glyph:'！'}),
- Object.freeze({key:'question',label:'はてな',glyph:'？'}),
- Object.freeze({key:'heart',label:'すき',glyph:'♥'}),
- Object.freeze({key:'like',label:'いいね',glyph:'👍'}),
- Object.freeze({key:'idea',label:'ひらめき',glyph:'💡'}),
- Object.freeze({key:'sweat',label:'あせ',glyph:'💦'}),
- Object.freeze({key:'music',label:'ごきげん',glyph:'♪'}),
- Object.freeze({key:'sleep',label:'ねむい',glyph:'💤'}),
+ Object.freeze({key:'surprise',label:'びっくり',glyph:'！',color:'#ff4a24'}),
+ Object.freeze({key:'question',label:'はてな',glyph:'？',color:'#2f86ff'}),
+ Object.freeze({key:'heart',label:'すき',glyph:'♥',color:'#ff4f7d'}),
+ Object.freeze({key:'like',label:'いいね',glyph:'👍',color:'#ffc21a'}),
+ Object.freeze({key:'idea',label:'ひらめき',glyph:'💡',color:'#ffe02a'}),
+ Object.freeze({key:'sweat',label:'あせ',glyph:'💦',color:'#36c4ff'}),
+ Object.freeze({key:'music',label:'ごきげん',glyph:'♪',color:'#22d67a'}),
+ Object.freeze({key:'sleep',label:'ねむい',glyph:'💤',color:'#a764f0'}),
 ])
 export const ICON_COUNT = ICONS.length
 

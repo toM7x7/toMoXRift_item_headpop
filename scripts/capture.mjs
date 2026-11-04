@@ -1,6 +1,6 @@
 // Scenario checks + screenshots for the local dev page with GPU Chrome.
 // Usage: node scripts/capture.mjs [scenario ...]   (dev server on 5262)
-// Scenarios: room, strip, keys, palette, wear, thumb, dup, other, vr, touch, preview, sdk
+// Scenarios: room, strip, keys, palette, wear, sign, thumb, dup, other, vr, touch, preview, sdk
 import {chromium} from 'playwright'
 import {mkdirSync,writeFileSync} from 'node:fs'
 import {join} from 'node:path'
@@ -150,6 +150,43 @@ const scenarios={
   }
   r=await report(page)
   check('wear: 外す brings it back to the spot',!r.worn&&r.stand.p===0&&(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
+  await page.evaluate(()=>window.__headPop.clock.run())
+  await page.close()
+ },
+ async sign(){
+  // The real 頭上看板 v8 (../../references/headkanban-ref) worn on the same head.
+  const page=await open('?sign=1')
+  const loaded=await page.waitForFunction(()=>!!window.__headPop.sign(),null,{timeout:20000}).then(()=>true).catch(()=>false)
+  check('sign: the real head tag loads next to the item',loaded)
+  if(!loaded){await page.close();return}
+  await page.evaluate(()=>window.__headPop.sign().act({type:'equip'}))
+  await page.evaluate(()=>window.__headPop.act({type:'wear'}))
+  await page.evaluate(()=>window.__headPop.view([.55,2.35,2.1],[0,2.2,0]))
+  await page.waitForFunction(()=>!!window.__headPop.sign()?.presence?.tagPosition,null,{timeout:15000}).catch(()=>{})
+  await page.waitForTimeout(900)
+  const tag=(await page.evaluate(()=>window.__headPop.sign().presence))
+  check('sign: the tag sits over my head',tag?.ownerId==='local-dev'&&Array.isArray(tag.tagPosition),{owner:tag?.ownerId,phase:tag?.phase,at:tag?.tagPosition})
+  // The plate itself, read between renders.
+  const plate=()=>page.evaluate(()=>{let m=null;window.__headPop.scene.traverse(o=>{if(!m&&typeof o.userData?.id==='string'&&o.userData.id.endsWith(':presence:tag-menu'))o.traverse(c=>{if(!m&&c.isMesh)m=c})});if(!m)return null;const b=new m.geometry.boundingBox.constructor().setFromObject(m);return {opacity:m.material.opacity,scale:m.scale.x,top:b.max.y,depthTest:m.material.depthTest}})
+  const before=await plate()
+  await page.screenshot({path:join(OUT,'sign-0-tag.png')})
+  await page.evaluate(()=>{const hp=window.__headPop;hp.clock.freeze();hp.act({type:'pop',icon:2})})
+  await page.evaluate(()=>window.__headPop.clock.step(.09));await page.waitForTimeout(200)
+  let r=await report(page)
+  check('sign: a burst flares as it pops',r.pops[0]?.burst===true,r.pops[0])
+  await page.screenshot({path:join(OUT,'sign-1-burst.png')})
+  await page.evaluate(()=>window.__headPop.clock.step(.9));await page.waitForTimeout(200)
+  r=await report(page)
+  const p=r.pops[0]
+  check('sign: the reaction stacks above the tag (bottom edge clears the plate top)',p?.stacked&&p.position[1]-.16>before.top+.02,{bottom:+(p?.position[1]-.16).toFixed(3),plateTop:+before.top.toFixed(3)})
+  check('sign: the tag steps back while it shows',p?.yielded===1,p?.yielded)
+  const between=await plate()
+  check('sign: the tag is untouched between renders',between.opacity===before.opacity&&between.scale===before.scale,{before,between})
+  await page.screenshot({path:join(OUT,'sign-2-hold.png')})
+  await page.evaluate(()=>window.__headPop.clock.step(2.4));await page.waitForTimeout(200)
+  await page.screenshot({path:join(OUT,'sign-3-after.png')})
+  r=await report(page)
+  check('sign: after the pop the tag is back as it was',r.pops.length===0&&(await plate()).opacity===before.opacity)
   await page.evaluate(()=>window.__headPop.clock.run())
   await page.close()
  },
