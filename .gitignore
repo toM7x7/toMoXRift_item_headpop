@@ -1,0 +1,17 @@
+node_modules/
+dist/
+artifacts/
+output/
+local-assets/
+*.vrm
+*.vrma
+*.log
+.xrift/
+**/.xrift/
+.env*
+.playwright-cli/
+.playwright-mcp/
+vendor/**/node_modules/
+vendor/**/dist/
+# Codex working files (prompts, raw sheets, logs) stay local.
+/concepts/

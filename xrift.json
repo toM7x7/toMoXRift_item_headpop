@@ -1,0 +1,14 @@
+{
+  "item": {
+    "distDir": "./dist",
+    "buildCommand": "npm run build",
+    "title": "ぴょこんリアクション",
+    "description": "頭の上に絵文字風のアイコンがぴょこんと出るリアクション。浮いているアイコンを選んで付け、PCは数字キー1〜8（！？♥👍💡💦♪💤）、VRは右スティック押し込みのパレットから選びます。部屋の全員に見えます。",
+    "thumbnailPath": "thumbnail.png",
+    "ignore": [
+      "**/*.map",
+      "**/*.d.ts",
+      "**/index.html"
+    ]
+  }
+}

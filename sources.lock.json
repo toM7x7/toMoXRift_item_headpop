@@ -1,0 +1,21 @@
+{
+  "recordedOn": "2026-11-04",
+  "basedOn": {
+    "repository": "https://github.com/toM7x7/toMoXRift_item_headkanban",
+    "commit": "3f25bf4fcdf4573613178c07390591603fb32cee",
+    "reusedPaths": ["src/vr-menu.mjs", "vendor/avatar-anchor/"],
+    "adaptedIdeas": ["placement-scoped keyboard registry (src/shortcuts.mjs)", "owner-relative menu layout (src/palette-layout.mjs)", "render-time head anchoring (src/render-hook.mjs)", "screen key hint (src/ShortcutHint.tsx)"]
+  },
+  "anchor": {
+    "repository": "https://github.com/toM7x7/xrift-avatar-anchor",
+    "commit": "67bb10a3b95f1f79fadd78d595f35c35b5dc936b",
+    "path": "vendor/avatar-anchor",
+    "vendoredPaths": ["src/", "package.json"],
+    "via": "toMoXRift_item_headkanban vendor/ (unchanged copy)",
+    "upstreamSourcesModified": false
+  },
+  "art": {
+    "icons": "Codex CLI image_gen (codex-cli 0.162.1), sheet B of three styles; cut by scripts/build-atlas.py into public/head-pop-icons.png",
+    "thumbnail": "local dev page capture (scripts/capture.mjs thumb), 1024px downscaled to 512px"
+  }
+}
