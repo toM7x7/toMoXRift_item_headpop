@@ -1,6 +1,6 @@
 // Scenario checks + screenshots for the local dev page with GPU Chrome.
 // Usage: node scripts/capture.mjs [scenario ...]   (dev server on 5262)
-// Scenarios: room, strip, keys, palette, wear, sign, tagkeys, thumb, dup, other, vr, touch, preview, sdk
+// Scenarios: room, strip, keys, palette, wear, owner, sign, tagkeys, thumb, dup, other, vr, touch, preview, sdk
 import {chromium} from 'playwright'
 import {mkdirSync,writeFileSync} from 'node:fs'
 import {join} from 'node:path'
@@ -151,6 +151,49 @@ const scenarios={
   r=await report(page)
   check('wear: 外す brings it back to the spot',!r.worn&&r.stand.p===0&&(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
   await page.evaluate(()=>window.__headPop.clock.run())
+  await page.close()
+ },
+ async owner(){
+  // Whoever wears a stand holds it: nobody else can select it until it is taken off.
+  const page=await open()
+  const KEY='head-pop-one:head-pop:wearer:v1'
+  const sharedOwner=()=>page.evaluate(k=>window.__headPop.shared.get(k)?.ownerId??null,KEY)
+  const setOwner=(owner,rev)=>page.evaluate(([k,o,r])=>window.__headPop.shared.set(k,{ownerId:o,revision:r}),[KEY,owner,rev])
+  await clickId(page,'head-pop-one:head-pop:stand');await page.waitForTimeout(800)
+  let r=await report(page)
+  check('owner: wearing it makes it mine for the room',r.worn&&r.wearer==='local-dev'&&(await sharedOwner())==='local-dev',{wearer:r.wearer,shared:await sharedOwner()})
+  await page.evaluate(()=>window.__headPop.act({type:'remove'}));await page.waitForTimeout(800)
+  r=await report(page)
+  check('owner: 外す frees it for everyone',!r.worn&&r.wearer===null&&(await sharedOwner())===null&&(await onScreen(page,'head-pop-one:head-pop:stand')))
+  // The neighbour puts it on (as their client would write it).
+  await page.evaluate(()=>window.__headPop.view([2.2,2.1,3.4],[.6,1.6,.4]))
+  await page.waitForTimeout(300)
+  await page.evaluate(()=>window.__headPop.clock.freeze())
+  await setOwner('remote-a',10)
+  const frames=[]
+  let last=0
+  for(const t of [0,.12,.24,.36,.48,.6]){
+   await page.evaluate(dt=>window.__headPop.clock.step(dt),t-last);last=t;await page.waitForTimeout(160)
+   const st=(await report(page)).stand;frames.push([t,+st.p.toFixed(2),st.target])
+   await page.screenshot({path:join(OUT,`owner-${String(Math.round(t*100)).padStart(3,'0')}.png`)})
+  }
+  await page.evaluate(()=>window.__headPop.clock.run())
+  r=await report(page)
+  check("owner: the neighbour's stand hops to the neighbour's head for me too",r.wearer==='remote-a'&&!r.worn&&r.stand.p===1&&r.stand.kind==='head'&&frames.some(f=>f[2]),frames)
+  check('owner: I cannot select or wear it while they have it',!(await onScreen(page,'head-pop-one:head-pop:stand'))&&(await page.evaluate(()=>window.__headPop.act({type:'wear'})))===false&&!(await report(page)).worn)
+  // They leave the room without taking it off: it is free again.
+  await setOwner('someone-who-left',11);await page.waitForTimeout(900)
+  r=await report(page)
+  check('owner: a wearer who left does not hold it',r.wearer===null&&r.stand.p===0&&(await onScreen(page,'head-pop-one:head-pop:stand')),r.stand)
+  // Both reach for it at once and theirs wins: mine lets go.
+  await clickId(page,'head-pop-one:head-pop:stand');await page.waitForTimeout(300)
+  await page.mouse.click(1000,760);await page.keyboard.press('KeyM');await page.waitForTimeout(200)
+  check('owner: worn again, palette open',(await report(page)).worn&&(await report(page)).paletteOpen)
+  await setOwner('remote-a',13);await page.waitForTimeout(300)
+  const seq=(await report(page)).fired?.seq??null
+  await page.keyboard.press('Digit1');await page.waitForTimeout(200)
+  r=await report(page)
+  check('owner: when someone else ends up holding it, mine lets go (palette closes, keys stop)',!r.worn&&!r.paletteOpen&&(r.fired?.seq??null)===seq&&r.wearer==='remote-a',{worn:r.worn,palette:r.paletteOpen,wearer:r.wearer})
   await page.close()
  },
  async sign(){

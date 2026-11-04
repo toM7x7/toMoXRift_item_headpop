@@ -25,3 +25,21 @@ export function subscribeWearing(listener){
  const s=store();s.listeners.add(listener)
  return ()=>{s.listeners.delete(listener);cleanup(s)}
 }
+
+/** Shared per stand: who wears it. Free = no owner. */
+export const FREE=Object.freeze({ownerId:null,revision:0})
+/**
+ * The person wearing a stand, from its shared state. A wearer who is no longer in the room
+ * (left, crashed) does not hold it, so a stand never stays locked.
+ * @param {any} shared @param {string|null} localId @param {Iterable<string>} remoteIds
+ * @returns {string|null}
+ */
+export function currentWearer(shared,localId,remoteIds){
+ const owner=typeof shared?.ownerId==='string'&&shared.ownerId?shared.ownerId:null
+ if(!owner)return null
+ if(owner===localId)return owner
+ for(const id of remoteIds)if(id===owner)return owner
+ return null
+}
+/** @param {any} shared @param {string|null} ownerId */
+export function nextWear(shared,ownerId){return {ownerId,revision:(Number.isInteger(shared?.revision)?shared.revision:0)+1}}

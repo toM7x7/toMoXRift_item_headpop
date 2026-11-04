@@ -4,7 +4,7 @@ import {createRoot} from 'react-dom/client'
 import {Canvas,useFrame,useThree,type ThreeEvent} from '@react-three/fiber'
 import {OrbitControls} from '@react-three/drei'
 import {RigidBody,CuboidCollider} from '@react-three/rapier'
-import {DevEnvironment,Item as SDKItem,ItemProvider,PlacementStateProvider,XRiftProvider,useUsers,type InstanceEventContextValue,type PlayerMovement,type UsersContextValue} from '@xrift/world-components'
+import {DevEnvironment,Item as SDKItem,ItemProvider,PlacementStateProvider,XRiftProvider,useUsers,type InstanceEventContextValue,type InstanceStateContextValue,type PlayerMovement,type UsersContextValue} from '@xrift/world-components'
 import {Group,Object3D,Vector3} from 'three'
 import {Item} from './Item'
 import {CHANNEL,makePayload} from './channel.mjs'
@@ -72,7 +72,10 @@ function SdkActor(){
  return <group ref={root}><primitive object={actor.root}/></group>
 }
 
-function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:ReturnType<typeof createDevEvents>}){
+/** Development shared state that a test can also write "from another person" (__headPop.shared). */
+type SharedStates={get:(id:string)=>unknown;set:(id:string,payload:unknown)=>void;keys:()=>string[]}
+
+function Readback({clock,bus,shared}:{clock:ReturnType<typeof createDevClock>;bus:ReturnType<typeof createDevEvents>;shared?:SharedStates}){
  const {scene,camera,gl}=useThree(),controls=useThree(state=>state.controls) as any
  useEffect(()=>{
   const find=(id=PLACEMENT)=>{let found:any=null;scene.traverse(o=>{if(!found&&o.userData.headPop?.itemId===id)found=o});return found}
@@ -83,6 +86,7 @@ function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:Retur
    sign(){let found:any=null;scene.traverse(o=>{if(!found&&o.userData.presenceActions)found=o});return found?{presence:found.userData.presence??null,act:(a:unknown)=>found.userData.presenceActions.act(a)}:null},
    deliver:(senderId:string,icon:number)=>bus.deliver(CHANNEL,senderId,makePayload(icon)),
    sent:()=>bus.sent.map(s=>({...s})),
+   shared,
    clock,scene,camera,gl,
    /** Screen position of an Interactable by id (for real clicks). */
    project(id:string){let r:any=null;scene.traverse(o=>{if(o.userData.id!==id)return;for(let n:Object3D|null=o;n;n=n.parent)if(!n.visible)return;const p=o.getWorldPosition(new Vector3()).project(camera),rect=gl.domElement.getBoundingClientRect();r={x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2,text:o.userData.interactionText,enabled:o.userData.enabled}});return r},
@@ -90,7 +94,7 @@ function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:Retur
    view(position:number[],target:number[]){camera.position.fromArray(position);camera.lookAt(new Vector3().fromArray(target));if(controls?.target){controls.target.fromArray(target);controls.update()}},
   }
   return()=>{delete (window as any).__headPop}
- },[scene,camera,gl,clock,bus,controls])
+ },[scene,camera,gl,clock,bus,controls,shared])
  return null
 }
 
@@ -98,6 +102,13 @@ function App(){
  const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT,dup=params.has('dup'),other=params.has('other'),previewing=params.has('preview'),solo=params.get('preview')==='solo',sign=params.has('sign')
  const clock=useMemo(createDevClock,[]),bus=useMemo(createDevEvents,[])
  const localYaw=SHOT?Math.PI+.45:Math.PI
+ const [states,setStates]=useState(()=>new Map<string,unknown>())
+ const statesRef=useRef(states);statesRef.current=states
+ // Like the platform: a write goes out and comes back as a new states map (deferred, since
+ // useInstanceState sends from inside a state updater).
+ const write=(id:string,payload:unknown)=>queueMicrotask(()=>setStates(m=>new Map(m).set(id,payload)))
+ const instanceState=useMemo<InstanceStateContextValue>(()=>({states,sendState:write}),[states])
+ const shared=useMemo<SharedStates>(()=>({get:id=>statesRef.current.get(id),set:write,keys:()=>[...statesRef.current.keys()]}),[])
  const users=useMemo<UsersContextValue>(()=>({
   localUser:{id:'local-dev',displayName:'わたし',avatarUrl:null,isGuest:false},
   remoteUsers:REMOTES.map(r=>({id:r.id,displayName:r.displayName,avatarUrl:null,isGuest:false})),
@@ -111,7 +122,7 @@ function App(){
  const ground=<><color attach="background" args={['#e8eef2']}/><hemisphereLight args={['#ffffff','#8a97a3',2.2]}/><directionalLight position={[3,6,4]} intensity={1.8}/><gridHelper args={[24,24,'#b8c6d0','#d5dee4']} position={[0,.001,0]}/></>
  if(sdk)return <main className="stage"><XRiftProvider baseUrl="/"><DevEnvironment items={{[SDK_ITEM_ID]:Item}} spawnPosition={[0,0,2.5]} camera={{fov:60}} shadows={false}>{ground}<RigidBody type="fixed" colliders={false}><mesh position={[0,-.1,0]}><boxGeometry args={[40,.2,40]}/><meshStandardMaterial color="#dfe6ea"/></mesh><CuboidCollider args={[20,.1,20]} position={[0,-.1,0]}/></RigidBody><SdkActor/><SDKItem placementId={PLACEMENT} itemId={SDK_ITEM_ID} position={[0,0,0]}/><Readback clock={clock} bus={bus}/></DevEnvironment></XRiftProvider><div className="hint">公式DevEnvironment：アイコンを選んで装着 → Ctrl+Alt+1〜8／Ctrl+Alt+M</div></main>
  return <main className="stage">
-  <XRiftProvider baseUrl="/" usersImplementation={users} instanceEventImplementation={bus.impl}>
+  <XRiftProvider baseUrl="/" usersImplementation={users} instanceEventImplementation={bus.impl} instanceStateImplementation={instanceState}>
    <Canvas camera={{position:[.4,2.05,3.9],fov:42}}>
     {ground}
     <mesh rotation={[-Math.PI/2,0,0]}><planeGeometry args={[30,30]}/><meshStandardMaterial color="#dfe6ea"/></mesh>
@@ -124,7 +135,7 @@ function App(){
      {sign&&HeadTag&&<ItemProvider id="head-tag-one" placedBy={ME}><HeadTag position={[-.7,0,1.3]}/></ItemProvider>}
      {previewing&&<PlacementStateProvider mode="preview"><ItemProvider id="head-pop-preview" placedBy={ME}><Item position={[1.55,0,1.1]} clock={clock.now}/></ItemProvider></PlacementStateProvider>}
     </group></Suspense>
-    <Readback clock={clock} bus={bus}/>
+    <Readback clock={clock} bus={bus} shared={shared}/>
     {!shot&&<OrbitControls makeDefault target={[0,1.45,0]}/>}
    </Canvas>
   </XRiftProvider>

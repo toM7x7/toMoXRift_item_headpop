@@ -57,3 +57,14 @@ test('R3 needs one right controller with a stick; hands alone do not count',()=>
  assert.equal(menuControllers({inputSources:[{...right,handedness:'left'}]}).length,0)
  assert.equal(menuControllers(null).length,0)
 })
+
+test('a stand is held only by a wearer who is in the room',async()=>{
+ const {FREE,currentWearer,nextWear}=await import('../src/wearing.mjs')
+ assert.equal(currentWearer(FREE,'me',['a']),null)
+ assert.equal(currentWearer({ownerId:'me',revision:1},'me',[]),'me')
+ assert.equal(currentWearer({ownerId:'a',revision:2},'me',['a','b']),'a','someone here has it on')
+ assert.equal(currentWearer({ownerId:'gone',revision:3},'me',['a']),null,'left the room: free again')
+ assert.equal(currentWearer(undefined,'me',[]),null)
+ assert.deepEqual(nextWear({ownerId:null,revision:4},'me'),{ownerId:'me',revision:5})
+ assert.deepEqual(nextWear(undefined,null),{ownerId:null,revision:1})
+})

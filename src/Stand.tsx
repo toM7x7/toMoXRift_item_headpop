@@ -44,7 +44,7 @@ export function Stand({id,mode,texture,geometries,interactionText,enabled,onInte
 }){
  const facing=useRef<Group>(null),icon=useRef<Mesh>(null),material=useRef<MeshBasicMaterial>(null)
  const floor=useRef<Mesh>(null),floorMaterial=useRef<MeshBasicMaterial>(null)
- const fly=useRef<StandFlight>({p:0,kind:'shrink',away:false,target:null,icon:0}),last=useRef<number|null>(null)
+ const fly=useRef<StandFlight>({p:0,kind:'shrink',away:false,target:null,icon:0}),last=useRef<number|null>(null),born=useRef(true)
  const tmp=useMemo(()=>({target:new Vector3(),local:new Vector3()}),[])
  const shadow=useSoftShadow()
  const preview=mode==='preview'||mode==='preview-blocked',grey=mode==='ghost'||mode==='preview-blocked'
@@ -52,6 +52,8 @@ export function Stand({id,mode,texture,geometries,interactionText,enabled,onInte
  useFrame(({clock,camera})=>{
   const t=clock.elapsedTime,n=now(),dt=last.current===null?0:Math.max(0,Math.min(.25,n-last.current));last.current=n
   const f=fly.current
+  // Already worn when it appears (joined late): already gone, no hop.
+  if(born.current){born.current=false;if(leaving){f.kind=worn&&locateHead?'head':'shrink';f.p=1}}
   // The kind is chosen as it leaves and kept for the trip back.
   if(f.p===0&&leaving)f.kind=worn&&locateHead?'head':'shrink'
   f.p=live?stepFlight(f.p,leaving,dt):0;f.away=leaving

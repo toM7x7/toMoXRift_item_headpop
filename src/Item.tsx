@@ -1,6 +1,6 @@
 import {Suspense,useCallback,useContext,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react'
 import {useFrame,useThree} from '@react-three/fiber'
-import {InstanceEventContext,useItem,usePlacementState,useUsers,type UsersContextValue} from '@xrift/world-components'
+import {InstanceEventContext,useInstanceState,useItem,usePlacementState,useUsers,type UsersContextValue} from '@xrift/world-components'
 import {Group,Vector3} from 'three'
 import {useBurstTexture,useIconAtlas,useIconGeometries} from './assets'
 import {CHANNEL,createRateGate,makePayload,readEvent} from './channel.mjs'
@@ -18,7 +18,7 @@ import {createSignFinder,headTagWornHere,paletteControls} from './sign.mjs'
 import {ShortcutHint} from './ShortcutHint'
 import {Stand,type StandFlight,type StandMode} from './Stand'
 import {menuControllers} from './vr-menu.mjs'
-import {setWearing,subscribeWearing,wearingAny} from './wearing.mjs'
+import {FREE,currentWearer,nextWear,setWearing,subscribeWearing,wearingAny} from './wearing.mjs'
 
 export interface ItemProps{
  position?:[number,number,number]
@@ -49,7 +49,13 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  const role=useSyncExternalStore(subscribePlacements,()=>placementRole(id),()=>'primary')
  const isRenderer=useSyncExternalStore(subscribePlacements,()=>rendererId()===id,()=>true)
  const live=!preview&&role==='primary',renderer=live&&isRenderer
- const [worn,setWorn]=useState(false),[paletteOpen,setPaletteOpen]=useState(false)
+ // Who wears this stand is shared: while someone wears it, nobody else can select it (for
+ // everyone else it has gone to that person's head). Free again on 外す or when they leave.
+ const [shared,setShared]=useInstanceState<{ownerId:string|null;revision:number}>(`${id}:head-pop:wearer:v1`,FREE)
+ const wearer=live?currentWearer(shared,localId,users.remoteUsers.map(u=>u.id)):null
+ const worn=!!localId&&wearer===localId,takenByOther=!!wearer&&!worn
+ const lastWearer=useRef<string|null>(null);if(wearer)lastWearer.current=wearer
+ const [paletteOpen,setPaletteOpen]=useState(false)
  const [fired,setFired]=useState<{icon:number;seq:number}|null>(null),[hintVisible,setHintVisible]=useState(false)
  const [echo,setEcho]=useState<EchoState|null>(null)
  // Worn = taken off the stand: for the wearer every live stand leaves its spot (the worn one
@@ -62,7 +68,7 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  const standState=useRef<StandFlight>({p:0,kind:'shrink',away:false,target:null,icon:0})
  const haptics=useMemo(()=>createHaptics(),[]),haptic=useRef({pops:0,ticks:0})
  const root=useRef<Group>(null),layer=useRef<Group>(null)
- const latest=useRef({worn,preview,live,localId,paletteOpen});latest.current={worn,preview,live,localId,paletteOpen}
+ const latest=useRef({worn,wearer,preview,live,localId,paletteOpen});latest.current={worn,wearer,preview,live,localId,paletteOpen}
  const usersRef=useRef<UsersContextValue>(users);usersRef.current=users
  const eventsRef=useRef(events);eventsRef.current=events
  const clockRef=useRef(clock);clockRef.current=clock
@@ -78,11 +84,13 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   switch(action.type){
    case 'wear':
     if(ctx.worn)return true
+    if(ctx.wearer&&ctx.wearer!==ctx.localId)return false // someone else has it on
     if(!shortcuts.current?.canWear())return false
-    latest.current={...ctx,worn:true};setWorn(true);if(haptics.tick())haptic.current.ticks++;return true
+    setShared(prev=>nextWear(prev,ctx.localId))
+    latest.current={...ctx,worn:true,wearer:ctx.localId};if(haptics.tick())haptic.current.ticks++;return true
    case 'remove':
-    if(ctx.worn&&haptics.tick())haptic.current.ticks++
-    latest.current={...ctx,worn:false,paletteOpen:false};setWorn(false);setPaletteOpen(false);return true
+    if(ctx.worn){if(haptics.tick())haptic.current.ticks++;setShared(prev=>nextWear(prev,null))}
+    latest.current={...ctx,worn:false,wearer:null,paletteOpen:false};setPaletteOpen(false);return true
    case 'palette':{
     if(!ctx.worn)return false
     const open=action.open??!ctx.paletteOpen
@@ -103,7 +111,7 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
    }
   }
   return false
- },[name,now,gl,haptics])
+ },[name,now,gl,haptics,setShared])
 
  // Other people's pops, received once per room by the renderer copy. The sender never
  // receives its own event; act() shows it locally through showPop().
@@ -148,18 +156,21 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  useEffect(()=>()=>haptics.attach(null),[haptics])
 
  useEffect(()=>{setWearing(id,worn&&live);return()=>setWearing(id,false)},[id,worn,live])
- /** Where the worn stand hops to: where this user's pops appear. */
+ /** Where the worn stand hops to (and back from): where its wearer's pops appear. */
  const locateHead=useCallback((out:Vector3)=>{
-  const me=latest.current.localId;if(!me)return null
-  const found=locateUser(me,out);if(found)return found
+  const who=latest.current.wearer??lastWearer.current,me=latest.current.localId;if(!who)return null
+  const found=locateUser(who,out);if(found)return found
+  if(who!==me)return null
   const p=usersRef.current.getLocalMovement?.()?.position
   if(!p||!Number.isFinite(p.x+p.y+p.z))return null
   const h=usersRef.current.getLocalAvatarHeight?.()?.height
   out.set(p.x,p.y+(Number.isFinite(h)&&h!>.2?h!:1.65)+ICON_CLEARANCE_M,p.z);return 'movement' as const
  },[])
 
- // A copy that stops being the room's stand (another copy took over) lets go of the wearer.
- useEffect(()=>{if(!live&&latest.current.worn){latest.current={...latest.current,worn:false,paletteOpen:false};setWorn(false);setPaletteOpen(false)}},[live])
+ // Taken off (here, by someone else taking it, or this copy stopping): close the palette.
+ useEffect(()=>{if(!worn)setPaletteOpen(false)},[worn])
+ // A placed copy that stops being live (an extra copy) lets go if it still names me.
+ useEffect(()=>{if(!live&&!preview&&localId&&shared?.ownerId===localId)setShared(prev=>nextWear(prev,null))},[live,preview,localId,shared,setShared])
 
  useFrame(({clock:frameClock})=>{
   const ctx=latest.current,session=gl.xr.getSession(),editing=isEditing(document.activeElement)
@@ -175,7 +186,7 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
   const t=frameClock.elapsedTime
   if(root.current&&t-lastReport.current>.1){
    lastReport.current=t
-   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current,haptics:{...haptic.current}},stand:{...standState.current,summonable},keys:{headTag:tw,palette:paletteControls(tw).key,vrHand:paletteControls(tw).hand},echo,palette:ctx.paletteOpen?paletteLayout.current:null,fired}
+   root.current.userData.headPop={itemId:id,role,renderer,placer,worn:ctx.worn,paletteOpen:ctx.paletteOpen,hint:show,events:events?'instance-event':'unavailable',channel:name,pops:runtime.current?.report()??[],vr:{...vr,fires:vrFires.current,haptics:{...haptic.current}},stand:{...standState.current,summonable},wearer,keys:{headTag:tw,palette:paletteControls(tw).key,vrHand:paletteControls(tw).hand},echo,palette:ctx.paletteOpen?paletteLayout.current:null,fired}
   }
  })
 
@@ -185,7 +196,7 @@ function HeadPop({position=[0,0,0],rotation=[0,0,0],scale=1,clock}:ItemProps){
  return <group ref={root}>
   <group position={position} rotation={rotation} scale={scale}>
    <Stand id={id} mode={mode} texture={texture} geometries={geometries} interactionText={standText} enabled={!preview&&!!localId} onInteract={()=>{if(latest.current.live)act(latest.current.worn?{type:'palette',open:true}:{type:'wear'})}}
-    away={live&&wearingHere&&summonable} worn={worn} locateHead={locateHead} now={now} state={standState.current}/>
+    away={live&&(takenByOther||wearingHere&&summonable)} worn={!!wearer} locateHead={locateHead} now={now} state={standState.current}/>
   </group>
   <group ref={layer}/>
   {paletteOpen&&worn&&live&&<Palette id={id} paletteKey={controls.label} texture={texture} geometries={geometries} onPick={(icon,from)=>act({type:'pop',icon,from})} onRemove={()=>act({type:'remove'})} onClose={()=>act({type:'palette',open:false})} report={layout=>{paletteLayout.current=layout}}/>}
