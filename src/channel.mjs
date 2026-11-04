@@ -1,7 +1,10 @@
 import {isIconIndex} from './icons.mjs'
 
-/** Event name per placement: copies placed side by side never echo each other. */
-export const channelName=placementId=>`head-pop:v1:${placementId}`
+/**
+ * One event name for the whole room. Only the primary copy listens and renders (see
+ * placements.mjs), so whichever copy is primary, reactions keep flowing and never double.
+ */
+export const CHANNEL='head-pop:v2'
 
 /** Wire format sent through useInstanceEvent. */
 export const makePayload=icon=>({v:1,icon})

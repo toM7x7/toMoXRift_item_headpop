@@ -3,10 +3,10 @@ import {createRoot} from 'react-dom/client'
 import {Canvas,useFrame,useThree,type ThreeEvent} from '@react-three/fiber'
 import {OrbitControls} from '@react-three/drei'
 import {RigidBody,CuboidCollider} from '@react-three/rapier'
-import {DevEnvironment,Item as SDKItem,ItemProvider,XRiftProvider,useUsers,type InstanceEventContextValue,type PlayerMovement,type UsersContextValue} from '@xrift/world-components'
+import {DevEnvironment,Item as SDKItem,ItemProvider,PlacementStateProvider,XRiftProvider,useUsers,type InstanceEventContextValue,type PlayerMovement,type UsersContextValue} from '@xrift/world-components'
 import {Group,Object3D,Vector3} from 'three'
 import {Item} from './Item'
-import {channelName,makePayload} from './channel.mjs'
+import {CHANNEL,makePayload} from './channel.mjs'
 import {ICONS} from './icons.mjs'
 import {createBoxAvatar,createMannequin} from './dev/mannequin'
 import './style.css'
@@ -66,27 +66,27 @@ function SdkActor(){
 }
 
 function Readback({clock,bus}:{clock:ReturnType<typeof createDevClock>;bus:ReturnType<typeof createDevEvents>}){
- const {scene,camera,gl}=useThree()
+ const {scene,camera,gl}=useThree(),controls=useThree(state=>state.controls) as any
  useEffect(()=>{
-  const find=()=>{let found:any=null;scene.traverse(o=>{if(!found&&o.userData.headPop?.itemId===PLACEMENT)found=o});return found}
+  const find=(id=PLACEMENT)=>{let found:any=null;scene.traverse(o=>{if(!found&&o.userData.headPop?.itemId===id)found=o});return found}
   ;(window as any).__headPop={
-   report:()=>find()?.userData.headPop??null,
-   act:(action:unknown)=>find()?.userData.headPopActions?.act(action)??false,
-   deliver:(senderId:string,icon:number)=>bus.deliver(channelName(PLACEMENT),senderId,makePayload(icon)),
+   report:(id?:string)=>find(id)?.userData.headPop??null,
+   act:(action:unknown,id?:string)=>find(id)?.userData.headPopActions?.act(action)??false,
+   deliver:(senderId:string,icon:number)=>bus.deliver(CHANNEL,senderId,makePayload(icon)),
    sent:()=>bus.sent.map(s=>({...s})),
    clock,scene,camera,
    /** Screen position of an Interactable by id (for real clicks). */
    project(id:string){let r:any=null;scene.traverse(o=>{if(o.userData.id!==id)return;for(let n:Object3D|null=o;n;n=n.parent)if(!n.visible)return;const p=o.getWorldPosition(new Vector3()).project(camera),rect=gl.domElement.getBoundingClientRect();r={x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2,text:o.userData.interactionText,enabled:o.userData.enabled}});return r},
    point(world:number[]){const p=new Vector3().fromArray(world).project(camera),rect=gl.domElement.getBoundingClientRect();return {x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2}},
-   view(position:number[],target:number[]){camera.position.fromArray(position);camera.lookAt(new Vector3().fromArray(target));(camera as any).userData.pinned={position,target}},
+   view(position:number[],target:number[]){camera.position.fromArray(position);camera.lookAt(new Vector3().fromArray(target));if(controls?.target){controls.target.fromArray(target);controls.update()}},
   }
   return()=>{delete (window as any).__headPop}
- },[scene,camera,gl,clock,bus])
+ },[scene,camera,gl,clock,bus,controls])
  return null
 }
 
 function App(){
- const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT
+ const params=new URLSearchParams(location.search),sdk=params.has('sdk'),shot=SHOT,dup=params.has('dup'),previewing=params.has('preview'),solo=params.get('preview')==='solo'
  const clock=useMemo(createDevClock,[]),bus=useMemo(createDevEvents,[])
  const localYaw=SHOT?Math.PI+.45:Math.PI
  const users=useMemo<UsersContextValue>(()=>({
@@ -98,7 +98,7 @@ function App(){
   getAvatarHeight:id=>REMOTES.some(r=>r.id===id)?{height:id==='remote-b'?1.7:1.81,eyeHeight:1.6}:undefined,
  }),[localYaw])
  const [log,setLog]=useState('')
- const sendRemote=(senderId:string,icon:number)=>{bus.deliver(channelName(PLACEMENT),senderId,makePayload(icon));setLog(`${REMOTES.find(r=>r.id===senderId)?.displayName}：${ICONS[icon].label}`)}
+ const sendRemote=(senderId:string,icon:number)=>{bus.deliver(CHANNEL,senderId,makePayload(icon));setLog(`${REMOTES.find(r=>r.id===senderId)?.displayName}：${ICONS[icon].label}`)}
  const ground=<><color attach="background" args={['#e8eef2']}/><hemisphereLight args={['#ffffff','#8a97a3',2.2]}/><directionalLight position={[3,6,4]} intensity={1.8}/><gridHelper args={[24,24,'#b8c6d0','#d5dee4']} position={[0,.001,0]}/></>
  if(sdk)return <main className="stage"><XRiftProvider baseUrl="/"><DevEnvironment items={{[SDK_ITEM_ID]:Item}} spawnPosition={[0,0,2.5]} camera={{fov:60}} shadows={false}>{ground}<RigidBody type="fixed" colliders={false}><mesh position={[0,-.1,0]}><boxGeometry args={[40,.2,40]}/><meshStandardMaterial color="#dfe6ea"/></mesh><CuboidCollider args={[20,.1,20]} position={[0,-.1,0]}/></RigidBody><SdkActor/><SDKItem placementId={PLACEMENT} itemId={SDK_ITEM_ID} position={[0,0,0]}/><Readback clock={clock} bus={bus}/></DevEnvironment></XRiftProvider><div className="hint">公式DevEnvironment：アイコンを選んで装着 → Ctrl+Alt+1〜8／Ctrl+Alt+M</div></main>
  return <main className="stage">
@@ -107,7 +107,11 @@ function App(){
     {ground}
     <mesh rotation={[-Math.PI/2,0,0]}><planeGeometry args={[30,30]}/><meshStandardMaterial color="#dfe6ea"/></mesh>
     <Avatars localYaw={localYaw}/>
-    <Suspense fallback={null}><group onClick={clickInteractable}><ItemProvider id={PLACEMENT}><Item position={shot?[3,0,-3]:[.7,0,1.45]} clock={clock.now}/></ItemProvider></group></Suspense>
+    <Suspense fallback={null}><group onClick={clickInteractable}>{!solo&&<ItemProvider id={PLACEMENT}><Item position={shot?[3,0,-3]:[.7,0,1.45]} clock={clock.now}/></ItemProvider>}
+     {/* ?dup: a second placed copy (larger id, so it is the extra one). ?preview: a copy being placed. */}
+     {dup&&<ItemProvider id="head-pop-two"><Item position={[-.75,0,1.35]} clock={clock.now}/></ItemProvider>}
+     {previewing&&<PlacementStateProvider mode="preview"><ItemProvider id="head-pop-preview"><Item position={[1.55,0,1.1]} clock={clock.now}/></ItemProvider></PlacementStateProvider>}
+    </group></Suspense>
     <Readback clock={clock} bus={bus}/>
     {!shot&&<OrbitControls makeDefault target={[0,1.45,0]}/>}
    </Canvas>

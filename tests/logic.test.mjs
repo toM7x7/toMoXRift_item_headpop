@@ -2,8 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {ICONS,ICON_COUNT,atlasRect,isIconIndex} from '../src/icons.mjs'
 import {shortcutAction} from '../src/input.mjs'
-import {popMotion,POP_IN_S,POP_HOLD_S,POP_TOTAL_S,easeOutBack} from '../src/motion.mjs'
-import {channelName,createRateGate,makePayload,readEvent} from '../src/channel.mjs'
+import {popMotion,standMotion,STAND_CYCLE_S,POP_IN_S,POP_HOLD_S,POP_TOTAL_S,easeOutBack} from '../src/motion.mjs'
+import {CHANNEL,createRateGate,makePayload,readEvent} from '../src/channel.mjs'
+import {placementRole,registerPlacement,subscribePlacements,placementsVersion} from '../src/placements.mjs'
 import {computePaletteLayout,paletteCells,PALETTE_WIDTH_M,PALETTE_HEIGHT_M} from '../src/palette-layout.mjs'
 
 const key=(code,extra={})=>({code,repeat:false,isComposing:false,metaKey:false,shiftKey:false,ctrlKey:false,altKey:false,defaultPrevented:false,target:null,...extra})
@@ -63,8 +64,8 @@ test('pop starts at zero size, overshoots, settles, then disappears',()=>{
  assert.equal(popMotion(0,1.2,.5).done,true,'custom hold shortens the pop')
 })
 
-test('events: per-placement name, server sender id, strict payload',()=>{
- assert.equal(channelName('abc'),'head-pop:v1:abc')
+test('events: one room-wide name, server sender id, strict payload',()=>{
+ assert.equal(CHANNEL,'head-pop:v2')
  assert.deepEqual(readEvent({payload:makePayload(4),senderId:'u1',timestamp:1}),{senderId:'u1',icon:4})
  for(const bad of [null,{},{payload:makePayload(9),senderId:'u'},{payload:{v:2,icon:1},senderId:'u'},{payload:makePayload(1),senderId:''},{payload:makePayload(1)},{payload:{v:1,icon:'1'},senderId:'u'}])assert.equal(readEvent(bad),null)
 })
@@ -88,4 +89,31 @@ test('palette sits in front of the body below the eyes and faces the viewer',()=
  assert.equal(cells.icons.length,8)
  for(const c of cells.icons)assert.ok(Math.abs(c.x)<=PALETTE_WIDTH_M/2&&Math.abs(c.y)<=PALETTE_HEIGHT_M/2)
  assert.ok(cells.remove.x<0&&cells.close.x>0)
+})
+
+test('one stand per room: smallest placed id is primary, previews never count',()=>{
+ let changes=0
+ const off=subscribePlacements(()=>changes++)
+ const b=registerPlacement('b-copy',false)
+ assert.equal(placementRole('b-copy'),'primary')
+ const p=registerPlacement('z-preview',true)
+ assert.equal(placementRole('z-preview'),'preview-duplicate','placing while one exists is greyed')
+ assert.equal(placementRole('b-copy'),'primary','a preview never takes over')
+ const a=registerPlacement('a-copy',false)
+ assert.equal(placementRole('a-copy'),'primary')
+ assert.equal(placementRole('b-copy'),'duplicate')
+ const v=placementsVersion()
+ a()
+ assert.ok(placementsVersion()>v)
+ assert.equal(placementRole('b-copy'),'primary','the remaining copy takes over')
+ b()
+ assert.equal(placementRole('z-preview'),'preview-first')
+ p();off()
+ assert.ok(changes>=5)
+})
+
+test('placed sticker never disappears while cycling',()=>{
+ const seen=new Set()
+ for(let t=0;t<STAND_CYCLE_S*9;t+=.01){const m=standMotion(t);seen.add(m.icon);assert.ok(m.sx>=.55&&m.sy>=.55,`t=${t.toFixed(2)} ${m.sx}`)}
+ assert.equal(seen.size,8)
 })

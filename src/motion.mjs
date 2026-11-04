@@ -1,3 +1,5 @@
+import {ICON_COUNT} from './icons.mjs'
+
 /**
  * Pop animation as a pure function of seconds since the pop started.
  * Exaggerated on purpose: it must read from across a room and in captures.
@@ -63,4 +65,17 @@ export function popMotion(icon,t,hold=POP_HOLD_S){
  }
  out.dy=dy
  return out
+}
+
+/** The placed sticker cycles through the icons but never shrinks below 60%,
+ * so on PC there is always something to aim the center ray at. */
+export const STAND_CYCLE_S = 1.9
+export function standMotion(t){
+ const cycle=Math.floor(t/STAND_CYCLE_S),p=t-cycle*STAND_CYCLE_S,icon=((cycle%ICON_COUNT)+ICON_COUNT)%ICON_COUNT
+ const IN=.34,OUT=.2
+ let s=1,j=0
+ if(p<IN)s=.6+.4*easeOutBack(p/IN)
+ else if(p>STAND_CYCLE_S-OUT){const x=(p-(STAND_CYCLE_S-OUT))/OUT;s=1-.4*x*x}
+ else j=.06*Math.sin((p-IN)*20)*Math.exp(-(p-IN)*8)
+ return {icon,sx:s*(1+j),sy:s*(1-j),dy:.02*Math.sin(t*1.4)}
 }

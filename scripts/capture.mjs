@@ -13,12 +13,12 @@ const browser=await chromium.launch({executablePath:exe,args:['--use-angle=d3d11
 const results={},errors=[]
 const check=(name,ok,detail)=>{results[name]={ok:!!ok,detail};console.log(ok?'PASS':'FAIL',name,detail===undefined?'':JSON.stringify(detail))}
 
-async function open(query=''){
+async function open(query='',waitId){
  const page=await browser.newPage({viewport:{width:1280,height:800}})
  page.on('pageerror',e=>errors.push(String(e)))
  page.on('console',m=>{if(m.type()==='error'||m.text().includes('[head-pop]'))errors.push(m.text())})
  await page.goto(BASE+query)
- await page.waitForFunction(()=>!!window.__headPop?.report?.(),null,{timeout:30000})
+ await page.waitForFunction(id=>!!window.__headPop?.report?.(id),waitId,{timeout:30000})
  await page.waitForTimeout(600)
  return page
 }
@@ -126,6 +126,35 @@ const scenarios={
   await page.screenshot({path:join(OUT,'thumb-1024.png')})
   await page.close()
  },
+ async dup(){
+  const page=await open('?dup=1')
+  const one=await page.evaluate(()=>window.__headPop.report()),two=await page.evaluate(()=>window.__headPop.report('head-pop-two'))
+  check('dup: smallest id is the live stand, the other is an extra',one.role==='primary'&&two.role==='duplicate',[one.role,two.role])
+  const ghost=await clickId(page,'head-pop-two:head-pop:stand')
+  check('dup: the extra copy says it is already placed and does not wear',/もう置いて/.test(ghost.text)&&!(await page.evaluate(()=>window.__headPop.report('head-pop-two'))).worn&&!(await report(page)).worn,ghost.text)
+  await clickId(page,'head-pop-one:head-pop:stand')
+  await page.evaluate(()=>{const hp=window.__headPop;hp.clock.freeze();hp.act({type:'pop',icon:2});hp.deliver('remote-a',0);hp.clock.step(1)})
+  await page.waitForTimeout(250)
+  const counts=await page.evaluate(()=>{let n=0;window.__headPop.scene.traverse(o=>{if(o.isMesh&&o.renderOrder===12&&o.parent?.visible)n++});return n})
+  check('dup: each reaction shows once, not once per copy',counts===2,counts)
+  await page.evaluate(()=>{window.__headPop.clock.run()})
+  await page.waitForTimeout(400)
+  await page.screenshot({path:join(OUT,'dup.png')})
+  await page.close()
+ },
+ async preview(){
+  for(const [query,expect,file] of [['?preview=solo','preview-first','preview.png'],['?preview=1','preview-duplicate','preview-blocked.png']]){
+   const page=await open(query,'head-pop-preview')
+   const r=await page.evaluate(()=>window.__headPop.report('head-pop-preview'))
+   check(`preview: ${query} role`,r?.role===expect&&!r.worn,r?.role)
+   const hit=await page.evaluate(()=>window.__headPop.project('head-pop-preview:head-pop:stand'))
+   check(`preview: ${query} has no selectable target`,hit===null)
+   await page.evaluate(()=>window.__headPop.view([1.0,1.9,3.6],[1.3,.7,1.0]))
+   await page.waitForTimeout(300)
+   await page.screenshot({path:join(OUT,file)})
+   await page.close()
+  }
+ },
  async sdk(){
   const page=await browser.newPage({viewport:{width:1280,height:800}})
   page.on('pageerror',e=>errors.push(String(e)))
@@ -133,8 +162,13 @@ const scenarios={
   await page.waitForFunction(()=>!!window.__headPop?.report?.(),null,{timeout:40000})
   await page.waitForTimeout(3000)
   // Official CenterRaycaster: turn toward the sticker and click with pointer lock.
-  await page.mouse.click(640,400);await page.waitForTimeout(300)
+  // The player spawns facing the sticker: the first click locks the pointer, the next one
+  // goes through the official CenterRaycaster.
+  await page.mouse.click(640,400);await page.waitForTimeout(400)
+  if(!(await report(page)).worn){await page.mouse.click(640,400);await page.waitForTimeout(400)}
   const before=await report(page)
+  check('sdk: center-ray click on the sticker wears it',before.worn)
+  await page.evaluate(()=>window.__headPop.act({type:'remove'}));await page.waitForTimeout(150)
   await page.keyboard.press('Control+Alt+Digit3');await page.waitForTimeout(200)
   check('sdk: keys do nothing before wearing',(await report(page)).pops.length===0)
   await page.evaluate(()=>window.__headPop.act({type:'wear'}))
