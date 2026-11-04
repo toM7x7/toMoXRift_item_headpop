@@ -61,6 +61,14 @@ node scripts/capture.mjs   # GPU Chromeでの操作確認と撮影（devサー�
 
 Claude内蔵のブラウザーペインは、非表示のあいだ描画が止まります。確認は `scripts/capture.mjs`（GPU Chrome）で行います。
 
+## 配信
+
+| 版 | 日時 | 内容ハッシュ | 確認 |
+|---|---|---|---|
+| 1 | 2026-11-04 10:09 JST | `72f06e1a5fe2` | アイテムID `7bf3bc55-efba-4ae0-a8ed-98a12317ceee`。CDNの28ファイルすべてが手元の dist と一致（SHA-256）。審査の結果（ACTIVE）は未確認 |
+
+既存アイテムの更新には、作者の手元の `.xrift/item.json` が必要です（Git対象外）。初めてcloneした環境でアップロードすると、新しいアイテムIDが作られます。
+
 ## 確認済みの範囲
 
 - 13のユニットテスト、型、Itemビルド、公式の配布前検査（`xrift check item`、26 JSファイルすべてAPPROVE）
